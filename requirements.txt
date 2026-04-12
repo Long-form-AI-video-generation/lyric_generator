@@ -1,0 +1,6 @@
+whisperx
+torch
+anthropic
+python-dotenv
+pytest
+thefuzz[speedup]
