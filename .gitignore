@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+songs/*/audio.wav
+cache/
+output/
+.DS_Store
+*.egg-info/
+dist/
+.venv/
+venv/
