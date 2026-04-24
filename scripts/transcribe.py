@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import logging
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_PUNCTUATION_BOUNDARY = re.compile(r"(?<=[.!?;,])\s+")
 
 
 def convert_to_wav(input_path: str, output_path: str) -> None:
@@ -95,13 +97,45 @@ def transcribe(
     result = model.transcribe(audio)
     logger.info("Transcription completed in %.2fs", time.perf_counter() - t1)
 
-    lines: list[str] = []
-    for segment in result.get("segments", []):
-        text = segment.get("text", "").strip()
-        if text:
-            lines.append(text)
+    lines = split_transcribed_lines(result.get("segments", []))
 
     logger.info("Transcribed %d lines", len(lines))
+    return lines
+
+
+def split_transcribed_lines(
+    segments: list[dict[str, object]],
+    max_words_per_line: int = 8,
+) -> list[str]:
+    """Split WhisperX segments into display-friendly lyric lines.
+
+    WhisperX often returns long segments that are awkward to show as lyric
+    subtitles. This helper first honors punctuation when present, then falls
+    back to compact fixed-size word chunks to keep lines readable.
+    """
+    lines: list[str] = []
+
+    for segment in segments:
+        raw_text = str(segment.get("text", "")).strip()
+        if not raw_text:
+            continue
+
+        pieces = _PUNCTUATION_BOUNDARY.split(raw_text)
+        for piece in pieces:
+            text = piece.strip()
+            if not text:
+                continue
+
+            words = text.split()
+            if len(words) <= max_words_per_line:
+                lines.append(text)
+                continue
+
+            for idx in range(0, len(words), max_words_per_line):
+                chunk = " ".join(words[idx:idx + max_words_per_line]).strip()
+                if chunk:
+                    lines.append(chunk)
+
     return lines
 
 

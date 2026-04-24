@@ -1,6 +1,6 @@
 # Lyric Video Pipeline
 
-Automated lyrics-to-audio alignment pipeline built on WhisperX. Transcribes audio, force-aligns word-level timestamps against raw lyric text using fuzzy matching, and produces a structured JSON file that downstream video rendering tools can consume.
+Automated lyrics-to-audio alignment pipeline built on WhisperX. Transcribes audio, force-aligns the vocals, groups aligned words into display-friendly lyric lines based on timing pauses, and produces a structured JSON file that downstream video rendering tools can consume.
 
 ## Installation
 
@@ -53,7 +53,7 @@ python -m pipeline.align \
 
 Optional: pass `--device cuda` to use GPU acceleration.
 
-This produces a `lyrics.json` file and prints a correction report highlighting low-confidence lines.
+This produces a `lyrics.json` file with one timestamped lyric line per entry and prints a correction report highlighting low-confidence lines.
 
 ## Correcting Timestamps
 
@@ -81,8 +81,6 @@ The output JSON is an array of line objects:
 | `line`       | `str`         | The full reconstructed lyric line                                       |
 | `start`      | `float`       | Start time in seconds from beginning of audio                           |
 | `end`        | `float`       | End time in seconds from beginning of audio                             |
-| `speaker`    | `str`         | Speaker label, defaults to `"unknown"` (filled manually later)          |
-| `words`      | `list[dict]`  | Word-level timestamps: `{"word": str, "start": float, "end": float}`   |
 | `confidence` | `float`       | Average of word-level confidence scores (0.0-1.0), or `-1.0` if unavailable |
 
 Example:
@@ -94,15 +92,12 @@ Example:
     "line": "I keep waiting for the signal",
     "start": 32.4,
     "end": 34.8,
-    "speaker": "unknown",
-    "words": [
-      { "word": "I", "start": 32.4, "end": 32.6 },
-      { "word": "keep", "start": 32.6, "end": 32.9 }
-    ],
     "confidence": 0.94
   }
 ]
 ```
+
+`lyrics.json` is phrase-based: line breaks are driven primarily by timing gaps in the aligned vocals, with readability limits as a fallback. `process_song.py` also rewrites `lyrics.txt` from those final phrase lines so both outputs stay in sync.
 
 ## Note on WhisperX Accuracy
 

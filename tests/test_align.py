@@ -15,11 +15,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pipeline.align import (
+    group_aligned_words_into_lines,
     load_lyrics_text,
     print_correction_report,
     run_alignment,
     validate_lyrics_json,
 )
+from scripts.transcribe import split_transcribed_lines
 
 
 # ---------------------------------------------------------------------------
@@ -38,11 +40,6 @@ def _make_valid_line(
         "line": line,
         "start": start,
         "end": end,
-        "speaker": "unknown",
-        "words": [
-            {"word": "hello", "start": 1.0, "end": 1.5},
-            {"word": "world", "start": 1.5, "end": 2.0},
-        ],
         "confidence": 0.92,
     }
 
@@ -73,17 +70,55 @@ class TestValidateLyricsJson:
         with pytest.raises(ValueError, match="expected int, got str"):
             validate_lyrics_json([entry])
 
-    def test_validate_lyrics_json_missing_word_field(self) -> None:
-        """A word dict missing 'start' raises ValueError."""
-        entry = _make_valid_line()
-        del entry["words"][0]["start"]
-        with pytest.raises(ValueError, match="missing 'start'"):
-            validate_lyrics_json([entry])
-
     def test_validate_lyrics_json_not_a_list(self) -> None:
         """Passing a dict instead of a list raises ValueError."""
         with pytest.raises(ValueError, match="must be a list"):
             validate_lyrics_json({})  # type: ignore[arg-type]
+
+
+class TestSplitTranscribedLines:
+    """Tests for turning long WhisperX segments into lyric-sized lines."""
+
+    def test_split_transcribed_lines_chunks_long_text(self) -> None:
+        """Long segments are split into short display-friendly lines."""
+        segments = [
+            {
+                "text": (
+                    "If there was an apocalypse I'd want your lips on mine "
+                    "Just between you and me I think you look so fine"
+                )
+            }
+        ]
+
+        result = split_transcribed_lines(segments, max_words_per_line=6)
+
+        assert result == [
+            "If there was an apocalypse I'd",
+            "want your lips on mine Just",
+            "between you and me I think",
+            "you look so fine",
+        ]
+
+
+class TestGroupAlignedWordsIntoLines:
+    """Tests for phrase grouping based on aligned word timings."""
+
+    def test_group_aligned_words_into_lines_breaks_on_pause(self) -> None:
+        """A large pause between words starts a new display line."""
+        words = [
+            {"word": "So", "start": 1.0, "end": 1.2, "score": 0.95},
+            {"word": "baby", "start": 1.2, "end": 1.6, "score": 0.94},
+            {"word": "come", "start": 2.3, "end": 2.7, "score": 0.93},
+            {"word": "closer", "start": 2.7, "end": 3.1, "score": 0.92},
+        ]
+
+        result = group_aligned_words_into_lines(words)
+
+        assert [entry["line"] for entry in result] == ["So baby", "come closer"]
+        assert result[0]["start"] == 1.0
+        assert result[0]["end"] == 1.6
+        assert result[1]["start"] == 2.3
+        assert result[1]["end"] == 3.1
 
 
 # ---------------------------------------------------------------------------
@@ -180,15 +215,15 @@ class TestRunAlignment:
                     "words": [
                         {"word": "hello", "start": 1.0, "end": 1.3, "score": 0.95},
                         {"word": "world", "start": 1.3, "end": 1.7, "score": 0.90},
-                        {"word": "goodbye", "start": 2.0, "end": 2.4, "score": 0.88},
-                        {"word": "moon", "start": 2.4, "end": 2.8, "score": 0.92},
+                        {"word": "goodbye", "start": 2.3, "end": 2.7, "score": 0.88},
+                        {"word": "moon", "start": 2.7, "end": 3.1, "score": 0.92},
                     ]
                 }
             ]
         }
 
         output_path = tmp_path / "lyrics.json"
-        lyrics_text = "hello world\ngoodbye moon\n"
+        lyrics_text = "hello world goodbye moon\n"
 
         with patch.dict("sys.modules", {"torch": mock_torch, "whisperx": mock_whisperx}):
             result = run_alignment(
@@ -199,6 +234,8 @@ class TestRunAlignment:
             )
 
         assert len(result) == 2
+        assert result[0]["line"] == "hello world"
+        assert result[1]["line"] == "goodbye moon"
         assert result[0]["line_index"] == 0
         assert result[1]["line_index"] == 1
         assert output_path.exists()

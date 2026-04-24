@@ -2,8 +2,8 @@
 Lyrics alignment module.
 
 Uses WhisperX to transcribe audio and force-align the transcription
-against raw lyric text. Produces a structured JSON file with word-level
-and line-level timestamps, confidence scores, and speaker placeholders.
+against raw lyric text. Produces a structured JSON file with line-level
+timestamps and confidence scores for downstream display.
 
 Can be used as an importable module or run directly via:
     python -m pipeline.align --audio path --lyrics path --output path
@@ -61,23 +61,14 @@ _REQUIRED_LINE_FIELDS: dict[str, type] = {
     "line": str,
     "start": float,
     "end": float,
-    "speaker": str,
-    "words": list,
     "confidence": float,
-}
-
-_REQUIRED_WORD_FIELDS: dict[str, type] = {
-    "word": str,
-    "start": float,
-    "end": float,
 }
 
 
 def validate_lyrics_json(data: list[dict[str, Any]]) -> bool:
     """Validate a list of line dicts against the lyrics JSON schema.
 
-    Checks that every required field is present with the correct type for
-    both line-level and word-level entries.
+    Checks that every required field is present with the correct type.
 
     Args:
         data: The list of line dictionaries to validate.
@@ -110,25 +101,6 @@ def validate_lyrics_json(data: list[dict[str, Any]]) -> bool:
                     f"Line {idx}: field '{field}' expected "
                     f"{expected_type.__name__}, got {type(value).__name__}"
                 )
-
-        for widx, word_dict in enumerate(line_dict["words"]):
-            if not isinstance(word_dict, dict):
-                raise ValueError(
-                    f"Line {idx}, word {widx}: not a dict"
-                )
-            for field, expected_type in _REQUIRED_WORD_FIELDS.items():
-                if field not in word_dict:
-                    raise ValueError(
-                        f"Line {idx}, word {widx}: missing '{field}'"
-                    )
-                value = word_dict[field]
-                if expected_type is float and isinstance(value, int):
-                    continue
-                if not isinstance(value, expected_type):
-                    raise ValueError(
-                        f"Line {idx}, word {widx}: field '{field}' expected "
-                        f"{expected_type.__name__}, got {type(value).__name__}"
-                    )
 
     return True
 
@@ -174,6 +146,25 @@ def print_correction_report(lyrics_json: list[dict[str, Any]]) -> None:
 def _normalize(text: str) -> str:
     """Lowercase and strip punctuation for fuzzy comparison."""
     return "".join(ch for ch in text.lower() if ch.isalnum() or ch == " ").strip()
+
+
+def _display_word(word: str) -> str:
+    """Normalize aligned word text for display in lyric lines."""
+    return " ".join(word.strip().split())
+
+
+def _join_words(words: list[dict[str, Any]]) -> str:
+    """Join aligned words into a single display line."""
+    return " ".join(
+        cleaned for cleaned in (_display_word(w.get("word", "")) for w in words) if cleaned
+    ).strip()
+
+
+def _line_confidence(words: list[dict[str, Any]]) -> float:
+    """Average confidence across aligned words in a line."""
+    confidences = [w.get("score", -1.0) for w in words]
+    valid_conf = [c for c in confidences if c >= 0]
+    return sum(valid_conf) / len(valid_conf) if valid_conf else -1.0
 
 
 def _match_words_to_line(
@@ -223,48 +214,19 @@ def _match_words_to_line(
     return matched, best_end
 
 
-def _build_line_dict(
-    line_index: int,
-    line_text: str,
-    matched_words: list[dict[str, Any]],
-    prev_end: float,
-    next_start: float,
-) -> dict[str, Any]:
+def _build_line_dict(line_index: int, line_text: str, matched_words: list[dict[str, Any]]) -> dict[str, Any]:
     """Construct a single line dict from matched words.
 
-    If no words matched (e.g. instrumental section), estimates start/end
-    from surrounding lines and sets confidence to -1.0.
-
-    Args:
-        line_index: Zero-based line index.
-        line_text: The original lyric line string.
-        matched_words: Word-level dicts that were matched to this line.
-        prev_end: End time of the previous line (for estimation).
-        next_start: Start time of the next line (for estimation).
-
-    Returns:
-        A fully-formed line dict conforming to the lyrics JSON schema.
+    If no words matched, returns a zero-duration placeholder entry with
+    confidence -1.0 so the output schema remains stable.
     """
-    clean_words: list[dict[str, Any]] = []
-    for w in matched_words:
-        clean_words.append({
-            "word": w.get("word", ""),
-            "start": float(w.get("start", 0.0)),
-            "end": float(w.get("end", 0.0)),
-        })
-
-    if clean_words:
-        line_start = clean_words[0]["start"]
-        line_end = clean_words[-1]["end"]
-        confidences = [
-            w.get("score", -1.0) for w in matched_words
-        ]
-        valid_conf = [c for c in confidences if c >= 0]
-        avg_confidence = sum(valid_conf) / len(valid_conf) if valid_conf else -1.0
+    if matched_words:
+        line_start = float(matched_words[0].get("start", 0.0))
+        line_end = float(matched_words[-1].get("end", 0.0))
+        avg_confidence = _line_confidence(matched_words)
     else:
-        # No words matched — estimate from neighbours
-        line_start = prev_end
-        line_end = next_start if next_start > prev_end else prev_end + 2.0
+        line_start = 0.0
+        line_end = 0.0
         avg_confidence = -1.0
 
     return {
@@ -272,10 +234,124 @@ def _build_line_dict(
         "line": line_text,
         "start": round(line_start, 3),
         "end": round(line_end, 3),
-        "speaker": "unknown",
-        "words": clean_words,
         "confidence": round(avg_confidence, 4),
     }
+
+
+def _should_break_phrase(
+    current_words: list[dict[str, Any]],
+    next_word: dict[str, Any],
+    max_words_per_line: int,
+    max_chars_per_line: int,
+    phrase_gap_seconds: float,
+    punctuation_gap_seconds: float,
+) -> bool:
+    """Decide whether the next aligned word should start a new lyric line."""
+    from config import SHORT_LINE_WORDS
+
+    if not current_words:
+        return False
+
+    previous_word = current_words[-1]
+    previous_end = float(previous_word.get("end", 0.0))
+    next_start = float(next_word.get("start", previous_end))
+    gap = next_start - previous_end
+
+    if gap >= phrase_gap_seconds:
+        return True
+
+    previous_text = _display_word(previous_word.get("word", ""))
+    if previous_text.endswith((".", "!", "?", ",", ";", ":")) and gap >= punctuation_gap_seconds:
+        return True
+
+    candidate_words = current_words + [next_word]
+    if len(candidate_words) > max_words_per_line:
+        return True
+
+    candidate_text = _join_words(candidate_words)
+    if len(candidate_text) > max_chars_per_line and len(current_words) > SHORT_LINE_WORDS:
+        return True
+
+    return False
+
+
+def _merge_short_phrases(
+    phrases: list[list[dict[str, Any]]],
+    max_words_per_line: int,
+    max_chars_per_line: int,
+) -> list[list[dict[str, Any]]]:
+    """Merge very short adjacent phrases when they still fit comfortably."""
+    from config import MERGE_PHRASE_GAP_SECONDS, SHORT_LINE_WORDS
+
+    if not phrases:
+        return []
+
+    merged: list[list[dict[str, Any]]] = [phrases[0]]
+    for phrase in phrases[1:]:
+        previous = merged[-1]
+        combined = previous + phrase
+        combined_text = _join_words(combined)
+        gap = float(phrase[0].get("start", 0.0)) - float(previous[-1].get("end", 0.0))
+
+        if (
+            len(previous) <= SHORT_LINE_WORDS
+            and gap <= MERGE_PHRASE_GAP_SECONDS
+            and len(combined) <= max_words_per_line
+            and len(combined_text) <= max_chars_per_line
+        ):
+            merged[-1] = combined
+        else:
+            merged.append(phrase)
+
+    return merged
+
+
+def group_aligned_words_into_lines(all_words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn aligned word timings into phrase-based lyric lines.
+
+    The grouping is driven by audible pauses between words first, then by
+    readability constraints such as max words and max characters per line.
+    """
+    from config import (
+        MAX_CHARS_PER_LINE,
+        MAX_WORDS_PER_LINE,
+        PHRASE_GAP_SECONDS,
+        PUNCTUATION_GAP_SECONDS,
+    )
+
+    cleaned_words = [w for w in all_words if _display_word(w.get("word", ""))]
+    if not cleaned_words:
+        return []
+
+    phrases: list[list[dict[str, Any]]] = []
+    current_phrase: list[dict[str, Any]] = []
+
+    for word in cleaned_words:
+        if _should_break_phrase(
+            current_phrase,
+            word,
+            max_words_per_line=MAX_WORDS_PER_LINE,
+            max_chars_per_line=MAX_CHARS_PER_LINE,
+            phrase_gap_seconds=PHRASE_GAP_SECONDS,
+            punctuation_gap_seconds=PUNCTUATION_GAP_SECONDS,
+        ):
+            phrases.append(current_phrase)
+            current_phrase = []
+        current_phrase.append(word)
+
+    if current_phrase:
+        phrases.append(current_phrase)
+
+    merged_phrases = _merge_short_phrases(
+        phrases,
+        max_words_per_line=MAX_WORDS_PER_LINE,
+        max_chars_per_line=MAX_CHARS_PER_LINE,
+    )
+
+    return [
+        _build_line_dict(idx, _join_words(words), words)
+        for idx, words in enumerate(merged_phrases)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -329,11 +405,13 @@ def run_alignment(
     if not audio_file.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-    # --- parse lyrics lines ---
     lyric_lines = [
         ln.strip() for ln in lyrics_text.splitlines() if ln.strip()
     ]
-    logger.info("Parsed %d lyric lines from input text", len(lyric_lines))
+    if lyric_lines:
+        logger.info("Parsed %d lyric lines from input text", len(lyric_lines))
+    else:
+        logger.info("No lyric lines supplied; generating display lines from alignment")
 
     # --- load model & transcribe ---
     t0 = time.perf_counter()
@@ -370,20 +448,10 @@ def run_alignment(
             all_words.append(w)
     logger.info("WhisperX produced %d word-level entries", len(all_words))
 
-    # --- fuzzy-match words to original lyric lines ---
+    # --- build display lines from the aligned timings ---
     t3 = time.perf_counter()
-    cursor = 0
-    line_dicts: list[dict[str, Any]] = []
-
-    for i, line_text in enumerate(lyric_lines):
-        matched, cursor = _match_words_to_line(line_text, all_words, cursor)
-        prev_end = line_dicts[-1]["end"] if line_dicts else 0.0
-        # Peek at next line's first word for estimation if needed
-        next_start = all_words[cursor]["start"] if cursor < len(all_words) else 0.0
-        ld = _build_line_dict(i, line_text, matched, prev_end, next_start)
-        line_dicts.append(ld)
-
-    logger.info("Line matching completed in %.2fs", time.perf_counter() - t3)
+    line_dicts = group_aligned_words_into_lines(all_words)
+    logger.info("Generated %d display lines in %.2fs", len(line_dicts), time.perf_counter() - t3)
 
     # --- validate ---
     validate_lyrics_json(line_dicts)

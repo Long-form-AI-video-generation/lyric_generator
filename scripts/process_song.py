@@ -4,8 +4,8 @@ End-to-end song processing: convert to WAV, transcribe lyrics, align timestamps.
 Takes a single audio or video file and produces all outputs in the same
 directory as the input file:
   - audio.wav     (converted audio for alignment)
-  - lyrics.txt    (transcribed lyrics)
-  - lyrics.json   (aligned lyrics with word-level timestamps)
+  - lyrics.txt    (transcribed lyrics, split into display-friendly lines)
+  - lyrics.json   (aligned lyrics with line-level timestamps)
 
 Usage:
     python scripts/process_song.py songs/song01/mysong.mp4
@@ -34,7 +34,7 @@ def process_song(
     Steps:
         1. Convert input to WAV (saved as audio.wav in the same directory)
         2. Transcribe audio to lyrics text (saved as lyrics.txt)
-        3. Align lyrics against audio (saved as lyrics.json)
+        3. Align lyric lines against audio (saved as lyrics.json)
         4. Print correction report for low-confidence lines
 
     All outputs are written to the same directory as the input file.
@@ -85,17 +85,22 @@ def process_song(
     # --- Step 3: Align lyrics to get timestamps ---
     logger.info("Step 3/3: Running forced alignment...")
     lyrics_text = lyrics_path.read_text(encoding="utf-8")
-    run_alignment(
+    aligned_lines = run_alignment(
         audio_path=str(wav_path),
         lyrics_text=lyrics_text,
         output_path=str(json_path),
         device=device,
     )
+    lyrics_path.write_text(
+        "\n".join(entry["line"] for entry in aligned_lines) + "\n",
+        encoding="utf-8",
+    )
+    logger.info("Updated %s with phrase-based lyric lines", lyrics_path)
 
     logger.info("Done! Outputs in %s/", song_dir)
     logger.info("  audio.wav   — converted audio")
-    logger.info("  lyrics.txt  — transcribed lyrics")
-    logger.info("  lyrics.json — aligned lyrics with timestamps")
+    logger.info("  lyrics.txt  — transcribed lyric lines")
+    logger.info("  lyrics.json — aligned lyric lines with timestamps")
     logger.info("")
     logger.info("Review low-confidence lines above, then optionally run:")
     logger.info("  python scripts/correct_timestamps.py %s", json_path)
