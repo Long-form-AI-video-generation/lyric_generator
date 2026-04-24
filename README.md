@@ -71,6 +71,23 @@ For each line you can press ENTER to keep the current timestamps, or type `start
 pytest tests/
 ```
 
+## Lyric Visualizer
+
+There is also a lightweight frontend preview app under `visualizer/` for reviewing a song against the generated `lyrics.json`.
+
+Start it locally with:
+
+```bash
+python -m visualizer.server
+```
+
+Then open `http://127.0.0.1:8000` in your browser and upload:
+
+- the audio file you want to preview
+- the generated `lyrics.json`
+
+The app will play the song, highlight the active lyric line, and show each line exactly as stored in the uploaded JSON.
+
 ## Lyrics JSON Schema
 
 The output JSON is an array of line objects:
