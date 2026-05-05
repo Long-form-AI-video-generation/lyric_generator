@@ -7,6 +7,7 @@ import type { LyricsFile, LyricLine } from "@/lib/types";
 type LyricCanvasProps = {
   lyrics: LyricsFile | null;
   backgroundUrl: string | null;
+  isCustomBackground?: boolean;
   audioRef: RefObject<HTMLAudioElement>;
   currentTime: number;
   playing: boolean;
@@ -41,7 +42,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines.slice(0, 3);
 }
 
-export function LyricCanvas({ lyrics, backgroundUrl, audioRef, currentTime, playing }: LyricCanvasProps) {
+export function LyricCanvas({ lyrics, backgroundUrl, isCustomBackground = false, audioRef, currentTime, playing }: LyricCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
 
@@ -77,7 +78,17 @@ export function LyricCanvas({ lyrics, backgroundUrl, audioRef, currentTime, play
         const scale = Math.max(width / image.width, height / image.height);
         const drawWidth = image.width * scale;
         const drawHeight = image.height * scale;
-        ctx.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+        const x = (width - drawWidth) / 2;
+        const y = (height - drawHeight) / 2;
+        if (isCustomBackground) {
+          // Extend draw area so blur doesn't bleed transparent edges in from outside
+          const pad = 24;
+          ctx.filter = "blur(2px) brightness(0.75)";
+          ctx.drawImage(image, x - pad, y - pad, drawWidth + pad * 2, drawHeight + pad * 2);
+          ctx.filter = "none";
+        } else {
+          ctx.drawImage(image, x, y, drawWidth, drawHeight);
+        }
       } else {
         const gradient = ctx.createLinearGradient(0, 0, width, height);
         gradient.addColorStop(0, "#101827");
@@ -86,7 +97,7 @@ export function LyricCanvas({ lyrics, backgroundUrl, audioRef, currentTime, play
         ctx.fillRect(0, 0, width, height);
       }
 
-      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillStyle = isCustomBackground ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.18)";
       ctx.fillRect(0, 0, width, height);
 
       const time = audioRef.current?.currentTime ?? currentTime;

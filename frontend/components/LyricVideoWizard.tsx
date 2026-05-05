@@ -24,6 +24,10 @@ export function LyricVideoWizard() {
     if (step < 3 && canContinue) setStep((step + 1) as 0 | 1 | 2 | 3);
   }
 
+  function back() {
+    if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3);
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
@@ -73,9 +77,9 @@ export function LyricVideoWizard() {
             className="flex flex-1 flex-col"
           >
             {step === 0 ? <UploadStep onNext={next} /> : null}
-            {step === 1 ? <LyricsStep onNext={next} /> : null}
-            {step === 2 ? <BackgroundStep onNext={next} /> : null}
-            {step === 3 ? <PreviewStep /> : null}
+            {step === 1 ? <LyricsStep onNext={next} onBack={back} /> : null}
+            {step === 2 ? <BackgroundStep onNext={next} onBack={back} /> : null}
+            {step === 3 ? <PreviewStep onBack={back} /> : null}
           </motion.section>
         </AnimatePresence>
       </main>

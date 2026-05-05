@@ -12,7 +12,7 @@ from backend.models.schemas import ExportSettings, JobPhase, JobState, LyricsFil
 from backend.services.ffmpeg_service import RenderError, render_lyric_video
 from backend.services.presets import preset_service
 from backend.services.storage import storage
-from backend.services.whisper_service import transcribe_audio
+from backend.services.whisper_service import align_lyrics_text, transcribe_audio
 
 
 def _public_error(message: str) -> str:
@@ -34,6 +34,44 @@ def run_transcription_job(job_token: str) -> None:
             debug_log="",
         )
         lyrics = transcribe_audio(Path(manifest.audio_path))
+        lyrics_path = storage.write_json(
+            job_token,
+            "lyrics.json",
+            lyrics.model_dump(mode="json"),
+        )
+        storage.update(
+            job_token,
+            status=JobState.complete,
+            phase=JobPhase.transcribing,
+            progress_pct=100,
+            lyrics_path=str(lyrics_path),
+            error="",
+            debug_log="",
+        )
+    except Exception as exc:
+        storage.update(
+            job_token,
+            status=JobState.failed,
+            phase=JobPhase.transcribing,
+            progress_pct=100,
+            error=_public_error(str(exc)),
+            debug_log=str(exc),
+        )
+
+
+def run_alignment_job(job_token: str, lyrics_text: str) -> None:
+    """Align user-provided lyrics text to audio timing and persist lyrics JSON."""
+
+    try:
+        manifest = storage.update(
+            job_token,
+            status=JobState.processing,
+            phase=JobPhase.transcribing,
+            progress_pct=10,
+            error="",
+            debug_log="",
+        )
+        lyrics = align_lyrics_text(Path(manifest.audio_path), lyrics_text)
         lyrics_path = storage.write_json(
             job_token,
             "lyrics.json",
