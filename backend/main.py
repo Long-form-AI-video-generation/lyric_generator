@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.core.config import settings
 from backend.core.errors import AppError
 from backend.routers import export, presets, transcribe, upload
+from backend.services.cleanup import run_periodic_cleanup
 from backend.services.presets import preset_service
 from backend.services.storage import storage
 
@@ -20,8 +22,21 @@ from backend.services.storage import storage
 async def lifespan(app: FastAPI):
     storage.ensure_root()
     preset_service.thumb_dir.mkdir(parents=True, exist_ok=True)
-    yield
-    storage.cleanup_expired()
+    cleanup_task = asyncio.create_task(
+        run_periodic_cleanup(
+            storage.cleanup_expired,
+            interval_seconds=settings.cleanup_interval_seconds,
+        )
+    )
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        storage.cleanup_expired()
 
 
 app = FastAPI(

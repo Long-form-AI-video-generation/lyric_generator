@@ -50,6 +50,7 @@ class Settings:
     )
     job_ttl_seconds: int = int(os.getenv("JOB_TTL_SECONDS", "600"))
     download_ttl_seconds: int = int(os.getenv("DOWNLOAD_TTL_SECONDS", "300"))
+    cleanup_interval_seconds: int = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
 
     use_celery: bool = _bool_env("USE_CELERY", False)
     celery_broker_url: str = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")

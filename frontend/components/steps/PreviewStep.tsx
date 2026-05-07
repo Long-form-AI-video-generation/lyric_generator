@@ -2,7 +2,8 @@
 
 import { Download, FileWarning, Film, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { downloadUrl, getJobStatus, startExport } from "@/lib/api";
+import { downloadUrl, startExport } from "@/lib/api";
+import { pollJobStatus } from "@/lib/jobs";
 import type { ExportResolution } from "@/lib/types";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { LyricCanvas } from "@/components/LyricCanvas";
@@ -12,13 +13,11 @@ import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
 
 async function pollExport(jobToken: string, onProgress: (pct: number) => void) {
-  while (true) {
-    await new Promise((resolve) => window.setTimeout(resolve, 2000));
-    const status = await getJobStatus(jobToken);
-    onProgress(status.progress_pct);
-    if (status.status === "failed") return status;
-    if (status.status === "complete") return status;
-  }
+  return pollJobStatus(jobToken, {
+    timeoutMs: 10 * 60 * 1000,
+    timeoutMessage: "Export is taking longer than expected. Please retry the render.",
+    onProgress
+  });
 }
 
 export function PreviewStep() {
@@ -136,4 +135,3 @@ export function PreviewStep() {
     </div>
   );
 }
-

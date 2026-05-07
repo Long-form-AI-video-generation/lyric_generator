@@ -77,7 +77,7 @@ class TranscribeRequest(BaseModel):
 
 class QueueResponse(BaseModel):
     job_token: str
-    status: Literal["queued"] = "queued"
+    status: Literal["queued", "processing", "complete"] = "queued"
 
 
 class StatusResponse(BaseModel):

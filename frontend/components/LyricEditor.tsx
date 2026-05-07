@@ -4,7 +4,6 @@ import { Download, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { parseLyricsJson } from "@/lib/lyrics";
 import type { LyricsFile, LyricLine } from "@/lib/types";
-import { normalizeLyricsIds } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 
@@ -30,16 +29,17 @@ export function LyricEditor({ lyrics, onChange, onReset, onUploadLyrics }: Lyric
     const previous = lyrics.lines.at(-1);
     const start = previous ? previous.end : 0;
     const end = start + 2;
+    const nextId = Math.max(0, ...lyrics.lines.map((line) => line.id)) + 1;
     onChange({
       ...lyrics,
-      lines: [...lyrics.lines, { id: lyrics.lines.length + 1, text: "New lyric line", start, end }]
+      lines: [...lyrics.lines, { id: nextId, text: "New lyric line", start, end }]
     });
   }
 
   function deleteLine(id: number) {
     onChange({
       ...lyrics,
-      lines: normalizeLyricsIds(lyrics.lines.filter((line) => line.id !== id))
+      lines: lyrics.lines.filter((line) => line.id !== id)
     });
   }
 
