@@ -9,6 +9,7 @@ from backend.core.errors import AppError, WorkerUnavailableError
 from backend.models.schemas import AlignRequest, JobPhase, JobState, LyricsFile, QueueResponse, StatusResponse, TranscribeRequest
 from backend.services.job_runner import run_alignment_job, run_transcription_job
 from backend.services.storage import storage
+from backend.services.transcription_state import transcription_response_for_manifest
 
 router = APIRouter(tags=["jobs"])
 
@@ -31,7 +32,11 @@ async def transcribe(
     background_tasks: BackgroundTasks,
 ) -> QueueResponse:
     try:
-        storage.read_manifest(request.job_token)
+        manifest = storage.read_manifest(request.job_token)
+        existing_response = transcription_response_for_manifest(manifest)
+        if existing_response is not None:
+            return existing_response
+
         storage.update(
             request.job_token,
             status=JobState.queued,
@@ -104,4 +109,3 @@ async def lyrics(job_token: str) -> LyricsFile:
         return LyricsFile.model_validate(storage.read_json(job_token, "lyrics.json"))
     except AppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
-

@@ -1,26 +1,24 @@
 "use client";
 
-import { AlignLeft, ChevronLeft, Loader2, Wand2 } from "lucide-react";
-import { useState } from "react";
-import { getJobStatus, getLyrics, startAlignment, startTranscription } from "@/lib/api";
+import { FileJson, Loader2, Wand2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { getLyrics, startTranscription } from "@/lib/api";
+import { pollJobStatus } from "@/lib/jobs";
+import { parseLyricsJson } from "@/lib/lyrics";
 import { LyricEditor } from "@/components/LyricEditor";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
 
-const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-
-async function pollJob(jobToken: string, onProgress: (pct: number) => void) {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => window.setTimeout(resolve, 2000));
-    const status = await getJobStatus(jobToken);
-    onProgress(status.progress_pct);
-    if (status.status === "failed") throw new Error(status.error || "Job failed.");
-    if (status.status === "complete") return getLyrics(jobToken);
-  }
-  throw new Error("Timed out waiting for lyrics. Please try again.");
+async function pollTranscription(jobToken: string, onProgress: (pct: number) => void) {
+  const status = await pollJobStatus(jobToken, {
+    timeoutMs: 30 * 60 * 1000,
+    timeoutMessage: "Transcription is taking longer than expected. You can retry or upload a lyrics JSON file.",
+    onProgress
+  });
+  if (status.status === "failed") throw new Error(status.error || "Transcription failed.");
+  return getLyrics(jobToken);
 }
 
 export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
