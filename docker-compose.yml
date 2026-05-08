@@ -57,7 +57,7 @@ services:
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_API_BASE_URL: https://c101-196-188-112-242.ngrok-free.app
     ports:
       - "3000:3000"
     depends_on:
