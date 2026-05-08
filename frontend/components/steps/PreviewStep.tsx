@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileWarning, Film, Loader2 } from "lucide-react";
+import { ChevronLeft, Download, FileWarning, Film, Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { downloadUrl, startExport } from "@/lib/api";
 import { pollJobStatus } from "@/lib/jobs";
@@ -20,7 +20,7 @@ async function pollExport(jobToken: string, onProgress: (pct: number) => void) {
   });
 }
 
-export function PreviewStep() {
+export function PreviewStep({ onBack }: { onBack: () => void }) {
   const { upload, lyrics, background, exportStatus, setExportStatus, setError } = useAppStore();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -79,8 +79,9 @@ export function PreviewStep() {
   return (
     <div className="flex flex-1 flex-col gap-5">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+
         <div className="grid gap-3">
-          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} audioRef={audioRef} currentTime={currentTime} playing={playing} />
+          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} />
           <AudioPlayer src={upload.objectUrl} audioRef={audioRef} onTimeChange={setCurrentTime} onPlayingChange={setPlaying} />
         </div>
 
@@ -131,6 +132,12 @@ export function PreviewStep() {
             ) : null}
           </div>
         </aside>
+      </div>
+      <div className="mt-auto">
+        <Button variant="secondary" className="h-12 px-5" onClick={onBack}>
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+          Back
+        </Button>
       </div>
     </div>
   );

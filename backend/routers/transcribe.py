@@ -6,8 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from backend.core.config import settings
 from backend.core.errors import AppError, WorkerUnavailableError
-from backend.models.schemas import JobPhase, JobState, LyricsFile, QueueResponse, StatusResponse, TranscribeRequest
-from backend.services.job_runner import run_transcription_job
+from backend.models.schemas import AlignRequest, JobPhase, JobState, LyricsFile, QueueResponse, StatusResponse, TranscribeRequest
+from backend.services.job_runner import run_alignment_job, run_transcription_job
 from backend.services.storage import storage
 from backend.services.transcription_state import transcription_response_for_manifest
 
@@ -46,6 +46,35 @@ async def transcribe(
             debug_log="",
         )
         _queue_transcription(request.job_token, background_tasks)
+        return QueueResponse(job_token=request.job_token)
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post("/align", response_model=QueueResponse)
+async def align(
+    request: AlignRequest,
+    background_tasks: BackgroundTasks,
+) -> QueueResponse:
+    try:
+        storage.read_manifest(request.job_token)
+        storage.update(
+            request.job_token,
+            status=JobState.queued,
+            phase=JobPhase.transcribing,
+            progress_pct=0,
+            error="",
+            debug_log="",
+        )
+        if settings.use_celery:
+            try:
+                from backend.tasks.celery_tasks import align_job
+
+                align_job.delay(request.job_token, request.lyrics_text)
+            except Exception as exc:
+                raise WorkerUnavailableError("Could not queue alignment. Is Redis running?") from exc
+        else:
+            background_tasks.add_task(run_alignment_job, request.job_token, request.lyrics_text)
         return QueueResponse(job_token=request.job_token)
     except AppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc

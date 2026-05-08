@@ -41,6 +41,15 @@ export async function startTranscription(jobToken: string) {
   return readJson<{ job_token: string; status: "queued" }>(response);
 }
 
+export async function startAlignment(jobToken: string, lyricsText: string) {
+  const response = await fetch(`${API_BASE}/api/align`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_token: jobToken, lyrics_text: lyricsText })
+  });
+  return readJson<{ job_token: string; status: "queued" }>(response);
+}
+
 export async function getJobStatus(jobToken: string): Promise<JobStatus> {
   const response = await fetch(`${API_BASE}/api/status/${jobToken}`, { cache: "no-store" });
   return readJson<JobStatus>(response);

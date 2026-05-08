@@ -75,6 +75,11 @@ class TranscribeRequest(BaseModel):
     job_token: str
 
 
+class AlignRequest(BaseModel):
+    job_token: str
+    lyrics_text: str = Field(..., min_length=1, max_length=50_000)
+
+
 class QueueResponse(BaseModel):
     job_token: str
     status: Literal["queued", "processing", "complete"] = "queued"

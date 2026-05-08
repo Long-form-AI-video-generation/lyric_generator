@@ -98,7 +98,7 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
             <div className="font-display text-3xl font-black tracking-normal">Upload audio</div>
             <div className="mt-2 text-sm text-muted">MP3 or WAV, up to 200 MB</div>
           </div>
-          <Button type="button" variant="secondary">Choose File</Button>
+          <Button variant="secondary" asChild><span>Choose File</span></Button>
         </label>
       </div>
 

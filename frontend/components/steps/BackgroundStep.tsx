@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ImagePlus } from "lucide-react";
+import { Check, ChevronLeft, ImagePlus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { assetUrl, fetchPresets } from "@/lib/api";
 import type { Preset } from "@/lib/types";
@@ -31,7 +31,7 @@ function fallbackClass(id: string) {
   return classes[id] || classes["dark-gradient"];
 }
 
-export function BackgroundStep({ onNext }: { onNext: () => void }) {
+export function BackgroundStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const { presets, background, setBackground, setPresets, setError } = useAppStore();
   const [dragging, setDragging] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -133,8 +133,12 @@ export function BackgroundStep({ onNext }: { onNext: () => void }) {
           ) : null}
         </div>
       </div>
-      <div className="mt-auto">
-        <Button className="h-12 w-full text-base" disabled={!background} onClick={onNext}>
+      <div className="mt-auto flex gap-3">
+        <Button variant="secondary" className="h-12 px-5" onClick={onBack}>
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+          Back
+        </Button>
+        <Button className="h-12 flex-1 text-base" disabled={!background} onClick={onNext}>
           Next
         </Button>
       </div>
