@@ -1,116 +1,74 @@
-# Lyric Video Pipeline
+# LyricVid
 
-Automated lyrics-to-audio alignment pipeline built on WhisperX. Transcribes audio, force-aligns word-level timestamps against raw lyric text using fuzzy matching, and produces a structured JSON file that downstream video rendering tools can consume.
+LyricVid is an internal browser tool for creating synced lyric videos from an MP3 or WAV file. The refactored system follows the product specification in `requirememts.md`: a Next.js wizard for upload/edit/preview/export, a FastAPI backend for transient jobs, optional Celery + Redis workers, Whisper transcription, FFmpeg MP4 rendering, and no database-backed persistence.
 
-## Installation
+## What Is Included
 
-1. **Install system dependencies** (ffmpeg is required by WhisperX):
+- `frontend/` - Next.js 14 App Router, TypeScript, Tailwind, Zustand, Framer Motion, Lucide icons.
+- `backend/` - FastAPI API, Pydantic v2 schemas, upload validation by magic bytes, transient filesystem job storage, preset generation, Whisper boundary, ASS subtitle generation, FFmpeg rendering.
+- `docker-compose.yml` - frontend, backend, Celery worker, and Redis.
 
-   ```bash
-   # Ubuntu/Debian
-   sudo apt update && sudo apt install ffmpeg
+## Local Development
 
-   # macOS
-   brew install ffmpeg
-   ```
-
-2. **Create a virtual environment and install Python packages:**
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
-3. **Copy the environment file and add your HuggingFace token** (needed for WhisperX model downloads):
-
-   ```bash
-   cp .env.example .env
-   # Edit .env and set HF_TOKEN
-   ```
-
-## Preparing a Song Folder
-
-Create a directory under `songs/` for each track:
-
-```
-songs/
-  track01/
-    audio.wav      # WAV audio file
-    lyrics.txt     # Raw lyrics, one line per line
-```
-
-The lyrics file should contain one lyric line per text line. Blank lines are ignored.
-
-## Running Alignment
+Backend:
 
 ```bash
-python -m pipeline.align \
-  --audio songs/track01/audio.wav \
-  --lyrics songs/track01/lyrics.txt \
-  --output songs/track01/lyrics.json
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Optional: pass `--device cuda` to use GPU acceleration.
-
-This produces a `lyrics.json` file and prints a correction report highlighting low-confidence lines.
-
-## Correcting Timestamps
-
-Use the interactive correction helper to manually fix timestamps:
+Frontend:
 
 ```bash
-python scripts/correct_timestamps.py songs/track01/lyrics.json
+cd frontend
+npm install
+npm run dev
 ```
 
-For each line you can press ENTER to keep the current timestamps, or type `start,end` (e.g. `32.4,34.8`) to override.
+Open `http://localhost:3000`.
 
-## Running Tests
+By default `USE_CELERY=false`, so transcription and export jobs run as FastAPI background tasks for local development. For production-like async workers, set `USE_CELERY=true` and run Redis plus:
 
 ```bash
-pytest tests/
+celery -A backend.tasks.celery_app.celery_app worker --loglevel=INFO
 ```
 
-## Lyrics JSON Schema
+## Docker
 
-The output JSON is an array of line objects:
-
-| Field        | Type          | Description                                                             |
-|-------------|---------------|-------------------------------------------------------------------------|
-| `line_index` | `int`         | Zero-based sequential index                                             |
-| `line`       | `str`         | The full reconstructed lyric line                                       |
-| `start`      | `float`       | Start time in seconds from beginning of audio                           |
-| `end`        | `float`       | End time in seconds from beginning of audio                             |
-| `speaker`    | `str`         | Speaker label, defaults to `"unknown"` (filled manually later)          |
-| `words`      | `list[dict]`  | Word-level timestamps: `{"word": str, "start": float, "end": float}`   |
-| `confidence` | `float`       | Average of word-level confidence scores (0.0-1.0), or `-1.0` if unavailable |
-
-Example:
-
-```json
-[
-  {
-    "line_index": 0,
-    "line": "I keep waiting for the signal",
-    "start": 32.4,
-    "end": 34.8,
-    "speaker": "unknown",
-    "words": [
-      { "word": "I", "start": 32.4, "end": 32.6 },
-      { "word": "keep", "start": 32.6, "end": 32.9 }
-    ],
-    "confidence": 0.94
-  }
-]
+```bash
+docker compose up --build
 ```
 
-## Note on WhisperX Accuracy
+The compose stack exposes:
 
-WhisperX is optimized for spoken language and may produce less accurate transcriptions for sung vocals, especially with:
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:8000`
+- Redis: internal service only
 
-- Heavy vocal effects (reverb, autotune, distortion)
-- Overlapping vocals or harmonies
-- Rapid or mumbled delivery
-- Non-English words mixed into English lyrics
+Whisper model weights are cached in the `whisper-cache` Docker volume. For a GPU server, set `WHISPER_DEVICE=cuda` and use an appropriate CUDA-enabled Python base image for `backend/Dockerfile`.
 
-The pipeline uses fuzzy matching (`thefuzz`) to align WhisperX output back to your original lyrics, which compensates for minor transcription differences. Lines with confidence below 0.75 are flagged in the correction report for manual review. Use `scripts/correct_timestamps.py` to fix any misaligned timestamps.
+## API Summary
+
+- `POST /api/upload` - upload MP3/WAV, returns a `job_token`.
+- `POST /api/transcribe` - queue Whisper transcription for an uploaded job.
+- `GET /api/status/{job_token}` - poll transcription/render progress.
+- `GET /api/lyrics/{job_token}` - fetch generated lyrics JSON.
+- `POST /api/export` - queue MP4 rendering with final lyrics and background.
+- `GET /api/download/{job_token}` - stream the rendered MP4 and delete the job.
+- `GET /api/presets` - list built-in background presets.
+
+## Data Retention
+
+There is no database, no accounts, and no analytics. Uploaded files and render outputs live under `LYRICVID_TEMP_ROOT` only. Jobs are deleted after download or when the TTL cleanup removes stale directories.
+
+## Verification
+
+Lightweight tests avoid loading Whisper:
+
+```bash
+pytest backend/tests/
+```
+
+The Whisper path is intentionally isolated in `backend/services/whisper_service.py`; run that portion on a machine with enough CPU/GPU capacity and preloaded model weights.
