@@ -6,8 +6,8 @@ pydantic==2.10.4
 celery==5.4.0
 redis==5.2.1
 numpy>=1.26.0
-openai-whisper==20240930
-faster-whisper==1.1.0
+openai-whisper @ git+https://github.com/openai/whisper.git
+faster-whisper>=1.1.1
 torch>=2.2.0
 whisperx
 Pillow>=10.0.0

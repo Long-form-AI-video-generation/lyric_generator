@@ -1,23 +1,22 @@
 "use client";
 
-import { FileJson, Loader2, Wand2 } from "lucide-react";
-import { useRef, useState } from "react";
-import { getLyrics, startTranscription } from "@/lib/api";
+import { AlignLeft, ChevronLeft, Loader2, Wand2 } from "lucide-react";
+import { useState } from "react";
+import { getLyrics, startAlignment, startTranscription } from "@/lib/api";
 import { pollJobStatus } from "@/lib/jobs";
-import { parseLyricsJson } from "@/lib/lyrics";
 import { LyricEditor } from "@/components/LyricEditor";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
 
-async function pollTranscription(jobToken: string, onProgress: (pct: number) => void) {
+async function pollJob(jobToken: string, onProgress: (pct: number) => void) {
   const status = await pollJobStatus(jobToken, {
     timeoutMs: 30 * 60 * 1000,
-    timeoutMessage: "Transcription is taking longer than expected. You can retry or upload a lyrics JSON file.",
-    onProgress
+    timeoutMessage: "Operation is taking longer than expected.",
+    onProgress,
   });
-  if (status.status === "failed") throw new Error(status.error || "Transcription failed.");
+  if (status.status === "failed") throw new Error(status.error || "Operation failed.");
   return getLyrics(jobToken);
 }
 
