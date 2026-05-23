@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ExportResolution, JobStatus, LyricsFile, Preset, UploadResponse } from "@/lib/types";
+import type { ExportResolution, JobStatus, LyricsFile, Preset, Storyboard, UploadResponse } from "@/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -91,6 +91,30 @@ export function downloadUrl(pathOrToken: string) {
     return `${API_BASE}${pathOrToken}`;
   }
   return `${API_BASE}/api/download/${pathOrToken}`;
+}
+
+export async function startArtDirection(
+  jobToken: string,
+  stylePrompt: string,
+  backgroundImageB64?: string,
+) {
+  const response = await fetch(`${API_BASE}/api/art-direct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_token: jobToken,
+      style_prompt: stylePrompt,
+      background_image_b64: backgroundImageB64 ?? null,
+    }),
+  });
+  return readJson<{ job_token: string; status: "queued" }>(response);
+}
+
+export async function getStoryboard(jobToken: string): Promise<Storyboard> {
+  const response = await fetch(`${API_BASE}/api/storyboard/${jobToken}`, {
+    cache: "no-store",
+  });
+  return readJson<Storyboard>(response);
 }
 
 export function assetUrl(path: string) {

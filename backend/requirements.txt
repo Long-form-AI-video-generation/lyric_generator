@@ -1,4 +1,5 @@
 setuptools<80
+python-dotenv>=1.0.0
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
@@ -11,4 +12,16 @@ faster-whisper>=1.1.1
 torch>=2.2.0
 whisperx
 Pillow>=10.0.0
+
+
+openai>=1.30.0
+anthropic>=0.40.0
+json-repair>=0.30.0
+
+
+opencv-python-headless>=4.9.0
+glitch-this>=1.1.0
+
+
+moviepy>=2.0.0
 

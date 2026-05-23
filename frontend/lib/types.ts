@@ -20,11 +20,35 @@ export type Preset = {
 export type JobStatus = {
   job_token: string;
   status: "queued" | "processing" | "complete" | "failed";
-  phase?: "uploaded" | "transcribing" | "rendering" | null;
+  phase?: "uploaded" | "transcribing" | "art_directing" | "rendering" | null;
   progress_pct: number;
   result_url?: string | null;
   error?: string | null;
   debug_log?: string | null;
+};
+
+export type StoryboardLine = {
+  line_id: number;
+  font: string;
+  text_color: string;
+  font_size_pct: number;
+  position: { x_pct: number; y_pct: number };
+  animation: string;
+  background: {
+    image_index: number;
+    filter: string;
+    speaker_distortion: string;
+    speaker_opacity: number;
+  };
+  transition: string;
+  image_prompt: string | null;
+};
+
+export type Storyboard = {
+  title: string;
+  style_prompt: string;
+  lines: StoryboardLine[];
+  created_at: number;
 };
 
 export type UploadResponse = {

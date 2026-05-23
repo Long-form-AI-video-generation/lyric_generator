@@ -15,6 +15,22 @@ from backend.services.storage import storage
 from backend.services.whisper_service import align_lyrics_text, transcribe_audio
 
 
+def _asset_dirs() -> list[Path]:
+    """Return the configured background-image directories (may be empty)."""
+    raw = settings.asset_dirs_raw.strip()
+    if not raw:
+        return []
+    return [Path(p.strip()) for p in raw.split(",") if p.strip()]
+
+
+def _speaker_dirs() -> list[Path]:
+    """Return the configured speaker-photo directories (may be empty)."""
+    raw = settings.speaker_dirs_raw.strip()
+    if not raw:
+        return []
+    return [Path(p.strip()) for p in raw.split(",") if p.strip()]
+
+
 def _public_error(message: str) -> str:
     if settings.hide_internal_errors:
         return "The job failed. Please try again or contact the tool owner."
@@ -97,6 +113,58 @@ def run_alignment_job(job_token: str, lyrics_text: str) -> None:
         )
 
 
+def run_art_direction_job(job_token: str, style_prompt: str) -> None:
+
+    try:
+        storage.update(
+            job_token,
+            status=JobState.processing,
+            phase=JobPhase.art_directing,
+            progress_pct=10,
+            error="",
+            debug_log="",
+        )
+        manifest = storage.read_manifest(job_token)
+        if not manifest.lyrics_path:
+            raise RuntimeError("No lyrics.json found — run transcription or alignment first.")
+
+        lyrics_payload = json.loads(Path(manifest.lyrics_path).read_text(encoding="utf-8"))
+        from backend.models.schemas import parse_lyrics_payload
+
+        lyrics = parse_lyrics_payload(lyrics_payload)
+
+        from backend.services.art_director import run_art_direction
+
+        ad_request = storage.read_json(job_token, "art_direction_request.json")
+        background_image_b64: str | None = ad_request.get("background_image_b64")
+
+        storyboard = run_art_direction(
+            lyrics, style_prompt, background_image_b64=background_image_b64
+        )
+        storage.write_json(
+            job_token,
+            "storyboard.json",
+            storyboard.model_dump(mode="json"),
+        )
+        storage.update(
+            job_token,
+            status=JobState.complete,
+            phase=JobPhase.art_directing,
+            progress_pct=100,
+            error="",
+            debug_log="",
+        )
+    except Exception as exc:
+        storage.update(
+            job_token,
+            status=JobState.failed,
+            phase=JobPhase.art_directing,
+            progress_pct=100,
+            error=_public_error(str(exc)),
+            debug_log=str(exc),
+        )
+
+
 def run_export_job(job_token: str) -> None:
     """Render an MP4 from a stored export request."""
 
@@ -123,14 +191,41 @@ def run_export_job(job_token: str) -> None:
         title = lyrics.title or Path(manifest.safe_filename).stem or "song"
         safe_title = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in title).strip("-") or "song"
         output_path = storage.job_dir(job_token) / f"{safe_title}-lyrics.mp4"
-        render_lyric_video(
-            audio_path=Path(manifest.audio_path),
-            background_path=background_path,
-            lyrics=lyrics,
-            output_path=output_path,
-            resolution=export_settings.resolution,
-            fps=export_settings.fps,
-        )
+
+        storyboard_data = None
+        try:
+            storyboard_data = storage.read_json(job_token, "storyboard.json")
+        except Exception:
+            pass
+
+        if storyboard_data:
+            from backend.models.schemas import Storyboard
+            from backend.services.moviepy_renderer import render_storyboard_video
+
+            storyboard = Storyboard.model_validate(storyboard_data)
+            # Seed the asset pool with the job's own background image / preset
+            job_asset_dirs = _asset_dirs()
+            if background_path and background_path.exists():
+                job_asset_dirs = [background_path.parent] + job_asset_dirs
+            render_storyboard_video(
+                audio_path=Path(manifest.audio_path),
+                asset_dirs=job_asset_dirs,
+                speaker_dirs=_speaker_dirs(),
+                lyrics=lyrics,
+                storyboard=storyboard,
+                output_path=output_path,
+                resolution=export_settings.resolution,
+                fps=export_settings.fps,
+            )
+        else:
+            render_lyric_video(
+                audio_path=Path(manifest.audio_path),
+                background_path=background_path,
+                lyrics=lyrics,
+                output_path=output_path,
+                resolution=export_settings.resolution,
+                fps=export_settings.fps,
+            )
         storage.update(
             job_token,
             status=JobState.complete,

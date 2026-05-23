@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.core.config import settings
 from backend.core.errors import AppError
-from backend.routers import export, presets, transcribe, upload
+from backend.routers import export, presets, storyboard, transcribe, upload
 from backend.services.cleanup import run_periodic_cleanup
 from backend.services.presets import preset_service
 from backend.services.storage import storage
@@ -82,6 +82,7 @@ async def health() -> dict[str, str]:
 
 app.include_router(upload.router, prefix=settings.api_prefix)
 app.include_router(transcribe.router, prefix=settings.api_prefix)
+app.include_router(storyboard.router, prefix=settings.api_prefix)
 app.include_router(export.router, prefix=settings.api_prefix)
 app.include_router(presets.router, prefix=settings.api_prefix)
 
