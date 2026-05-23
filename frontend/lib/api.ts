@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { ExportResolution, JobStatus, LyricsFile, Preset, Storyboard, UploadResponse } from "@/lib/types";
+import type { AiBackground, ExportResolution, JobStatus, LyricsFile, Preset, Storyboard, UploadResponse } from "@/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -97,6 +97,7 @@ export async function startArtDirection(
   jobToken: string,
   stylePrompt: string,
   backgroundImageB64?: string,
+  songConfigYaml?: string,
 ) {
   const response = await fetch(`${API_BASE}/api/art-direct`, {
     method: "POST",
@@ -105,6 +106,7 @@ export async function startArtDirection(
       job_token: jobToken,
       style_prompt: stylePrompt,
       background_image_b64: backgroundImageB64 ?? null,
+      song_config_yaml: songConfigYaml ?? null,
     }),
   });
   return readJson<{ job_token: string; status: "queued" }>(response);
@@ -115,6 +117,18 @@ export async function getStoryboard(jobToken: string): Promise<Storyboard> {
     cache: "no-store",
   });
   return readJson<Storyboard>(response);
+}
+
+export async function getAiBackgrounds(jobToken: string): Promise<AiBackground[]> {
+  const response = await fetch(`${API_BASE}/api/jobs/${jobToken}/backgrounds`, {
+    cache: "no-store",
+  });
+  const payload = await readJson<{ backgrounds: AiBackground[] }>(response);
+  // Rewrite relative URLs to absolute so the canvas can load them cross-origin
+  return payload.backgrounds.map(bg => ({
+    ...bg,
+    url: `${API_BASE}${bg.url}`,
+  }));
 }
 
 export function assetUrl(path: string) {

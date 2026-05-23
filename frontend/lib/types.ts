@@ -72,3 +72,27 @@ export type BackgroundSelection =
 
 export type ExportResolution = "1080p" | "720p";
 
+export type AiBackground = { index: number; url: string };
+
+export type SpeakerConfig = {
+  id: string;
+  name: string;
+  font: string;
+  text_color: string;
+  animation: string;
+  font_size_pct: number;
+  position_y_pct: number;
+};
+
+export type SectionRule = {
+  id: string;
+  sections: string[];
+  style: string;
+};
+
+export type SongConfigForm = {
+  speakers: SpeakerConfig[];
+  section_rules: SectionRule[];
+  generate_ai_backgrounds: boolean;
+};
+

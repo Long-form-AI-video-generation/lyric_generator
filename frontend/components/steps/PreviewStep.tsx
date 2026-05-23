@@ -1,10 +1,10 @@
 "use client";
 
 import { ChevronLeft, Download, FileWarning, Film, Loader2 } from "lucide-react";
-import { useRef, useState } from "react";
-import { downloadUrl, startExport } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { downloadUrl, getAiBackgrounds, startExport } from "@/lib/api";
 import { pollJobStatus } from "@/lib/jobs";
-import type { ExportResolution } from "@/lib/types";
+import type { AiBackground, ExportResolution } from "@/lib/types";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { LyricCanvas } from "@/components/LyricCanvas";
 import { Button } from "@/components/ui/Button";
@@ -29,6 +29,15 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
   const [fps, setFps] = useState<30 | 60>(30);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [aiBackgrounds, setAiBackgrounds] = useState<AiBackground[]>([]);
+
+  
+  useEffect(() => {
+    if (!upload.jobToken) return;
+    getAiBackgrounds(upload.jobToken)
+      .then(setAiBackgrounds)
+      .catch(() => setAiBackgrounds([]));
+  }, [upload.jobToken, storyboard]);
 
   const ready = Boolean(upload.objectUrl && lyrics?.lines.length && background);
   const resultUrl = exportStatus?.result_url ? downloadUrl(exportStatus.result_url) : null;
@@ -81,7 +90,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
 
         <div className="grid gap-3">
-          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} />
+          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} aiBackgrounds={aiBackgrounds} />
           <AudioPlayer src={upload.objectUrl} audioRef={audioRef} onTimeChange={setCurrentTime} onPlayingChange={setPlaying} />
         </div>
 

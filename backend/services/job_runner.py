@@ -134,17 +134,49 @@ def run_art_direction_job(job_token: str, style_prompt: str) -> None:
         lyrics = parse_lyrics_payload(lyrics_payload)
 
         from backend.services.art_director import run_art_direction
+        from backend.services.song_config import parse_song_config
 
         ad_request = storage.read_json(job_token, "art_direction_request.json")
         background_image_b64: str | None = ad_request.get("background_image_b64")
+        song_config_yaml: str | None = ad_request.get("song_config_yaml")
+
+        song_config = parse_song_config(song_config_yaml or "")
 
         storyboard = run_art_direction(
-            lyrics, style_prompt, background_image_b64=background_image_b64
+            lyrics,
+            style_prompt,
+            background_image_b64=background_image_b64,
+            song_config=song_config,
         )
+
+        storyboard_dict = storyboard.model_dump(mode="json")
+
+        # Phase A+: generate AI backgrounds if the song config requests it
+        if song_config.generate_ai_backgrounds and settings.openai_api_key:
+            try:
+                from backend.services.ai_backgrounds import (
+                    apply_ai_backgrounds_to_storyboard,
+                    generate_ai_backgrounds,
+                )
+
+                job_dir = storage.job_dir(job_token)
+                prompt_to_index = generate_ai_backgrounds(
+                    job_dir,
+                    storyboard_dict.get("lines", []),
+                    openai_api_key=settings.openai_api_key,
+                )
+                if prompt_to_index:
+                    storyboard_dict = apply_ai_backgrounds_to_storyboard(
+                        storyboard_dict, prompt_to_index
+                    )
+            except Exception as bg_exc:  # noqa: BLE001
+                # Non-fatal — log but let the job succeed without AI images
+                print(f"[job_runner] AI background generation failed: {bg_exc}")
+
         storage.write_json(
             job_token,
             "storyboard.json",
-            storyboard.model_dump(mode="json"),
+            storyboard_dict,
         )
         storage.update(
             job_token,
