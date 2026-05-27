@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 from backend.core.config import settings
@@ -21,8 +22,45 @@ from backend.models.schemas import (
 
 _LOG = logging.getLogger(__name__)
 
-
 _CHUNK_SIZE = 20
+
+
+_REFUSAL_PHRASES = (
+    "i'm sorry",
+    "i am sorry",
+    "i can't assist",
+    "i cannot assist",
+    "i can't help",
+    "i cannot help",
+    "i'm unable",
+    "i am unable",
+    "unable to assist",
+    "unable to help",
+    "i apologize",
+    "i won't",
+    "i will not",
+    "as an ai",
+    "as a language model",
+    "violates my",
+    "against my",
+    "i must decline",
+)
+
+_REFUSAL_USER_MSG = (
+    "OpenAI declined to process this content. "
+    "This can happen with certain lyrics due to content moderation. "
+    "Try clicking Generate again — the model is sometimes inconsistent. "
+    "If it keeps failing, try a different style description or rephrase your lyrics."
+)
+
+
+def _is_refusal(text: str) -> bool:
+    
+    lowered = text.lower()
+    
+    if lowered.lstrip().startswith("{"):
+        return False
+    return any(phrase in lowered for phrase in _REFUSAL_PHRASES)
 
 _SYSTEM_PROMPT = """\
 You are an art director for a lyric video production company.
@@ -76,14 +114,15 @@ def _call_openai(
     background_image_b64: str | None = None,
     *,
     attempt_label: str = "",
+    openai_api_key: str | None = None,
 ) -> str:
-    import openai  # type: ignore[import-untyped]
+    import openai  
 
-    api_key = settings.openai_api_key
+    api_key = openai_api_key or settings.openai_api_key
     if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY is not configured. "
-            "Set it in your .env file."
+            "No OpenAI API key available. "
+            "Please enter your key on the API Key page"
         )
 
     client = openai.OpenAI(api_key=api_key)
@@ -117,20 +156,17 @@ def _call_openai(
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user",   "content": user_content},
             ],
-            max_tokens=4096,  # safe cap — each chunk is ≤20 lines (~2 k tokens max)
+            max_tokens=4096,  
         )
         choice = response.choices[0]
         content = (choice.message.content or "").strip()
 
-        # Log the outcome so the server console shows useful diagnostics
+        
         refusal = getattr(choice.message, "refusal", None)
         _LOG.info(
             "OpenAI %s attempt %d/3: finish_reason=%r content_len=%d refusal=%r",
             attempt_label, attempt, choice.finish_reason, len(content), refusal,
         )
-
-        if content:
-            return content
 
         if refusal:
             raise RuntimeError(
@@ -149,10 +185,27 @@ def _call_openai(
                 "OpenAI filtered the response. Try a different style description."
             )
 
+        if content:
+            
+            if _is_refusal(content):
+                _LOG.warning(
+                    "OpenAI %s attempt %d/3: soft refusal detected — retrying. "
+                    "Content preview: %r",
+                    attempt_label, attempt, content[:120],
+                )
+                last_err = RuntimeError(_REFUSAL_USER_MSG)
+                time.sleep(1.0)
+                continue
+            return content
+
         last_err = RuntimeError(
             f"OpenAI empty response on attempt {attempt}/3 "
             f"(finish_reason={finish_reason!r})"
         )
+
+   
+    if last_err and _REFUSAL_USER_MSG in str(last_err):
+        raise RuntimeError(_REFUSAL_USER_MSG) from last_err
 
     raise RuntimeError(
         "OpenAI returned empty responses on all 3 attempts for this lyric chunk. "
@@ -164,7 +217,7 @@ def _call_anthropic(
     lyrics_text: str,
     background_image_b64: str | None = None,
 ) -> str:
-    import anthropic  # type: ignore[import-untyped]
+    import anthropic  
 
     api_key = settings.anthropic_api_key
     if not api_key:
@@ -217,10 +270,6 @@ def _call_anthropic(
 
 
 def _parse_chunk(raw: str, chunk_lines: list[LyricLine]) -> list[dict[str, Any]]:
-    """Strip markdown fences, fix trailing commas, and parse the JSON.
-
-    Returns the ``lines`` list from the parsed payload.
-    """
    
     if raw.startswith("```"):
         parts = raw.split("```", 2)
@@ -238,6 +287,10 @@ def _parse_chunk(raw: str, chunk_lines: list[LyricLine]) -> list[dict[str, Any]]
             f"The model returned an empty response for lines {ids}. "
             "Please try regenerating."
         )
+
+   
+    if _is_refusal(raw):
+        raise RuntimeError(_REFUSAL_USER_MSG)
 
     try:
         payload = json.loads(raw)
@@ -291,7 +344,7 @@ def _build_song_config_context(song_config: SongConfig | None) -> str:
 
     if song_config.generate_ai_backgrounds:
         parts.append(
-            "AI background generation is enabled — populate image_prompt for every "
+            "AI background generation is enabled, populate image_prompt for every "
             "line with a concise Stable Diffusion / FLUX prompt for that line's mood."
         )
 
@@ -304,13 +357,14 @@ def run_art_direction(
     *,
     background_image_b64: str | None = None,
     song_config: SongConfig | None = None,
+    openai_api_key: str | None = None,
+    on_progress: Callable[[int], None] | None = None,
 ) -> Storyboard:
-    """Generate a storyboard by calling the LLM in chunks of _CHUNK_SIZE lines."""
+    
 
     config_context = _build_song_config_context(song_config)
     provider = settings.llm_provider.lower()
 
-    # Split lyrics into chunks
     lines = lyrics.lines
     chunks: list[list[LyricLine]] = [
         lines[i : i + _CHUNK_SIZE] for i in range(0, len(lines), _CHUNK_SIZE)
@@ -346,18 +400,20 @@ def run_art_direction(
             + f"Lyrics:\n{lyrics_block}"
         )
 
-        # Send the background image only with the first chunk (colour reference)
+        
         bg = background_image_b64 if chunk_idx == 0 else None
 
         label = f"chunk {chunk_idx + 1}/{n_chunks}"
         if provider == "anthropic":
             raw = _call_anthropic(user_message, bg)
         else:
-            raw = _call_openai(user_message, bg, attempt_label=label)
+            raw = _call_openai(user_message, bg, attempt_label=label, openai_api_key=openai_api_key)
 
         chunk_lines_result = _parse_chunk(raw, chunk)
         all_raw_lines.extend(chunk_lines_result)
         _LOG.info("Chunk %d/%d: got %d directions", chunk_idx + 1, n_chunks, len(chunk_lines_result))
+        if on_progress:
+            on_progress(round((chunk_idx + 1) / n_chunks * 100))
 
     return _build_storyboard(
         {"title": lyrics.title, "lines": all_raw_lines},

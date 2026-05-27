@@ -98,6 +98,7 @@ export async function startArtDirection(
   stylePrompt: string,
   backgroundImageB64?: string,
   songConfigYaml?: string,
+  openaiApiKey?: string,
 ) {
   const response = await fetch(`${API_BASE}/api/art-direct`, {
     method: "POST",
@@ -107,6 +108,7 @@ export async function startArtDirection(
       style_prompt: stylePrompt,
       background_image_b64: backgroundImageB64 ?? null,
       song_config_yaml: songConfigYaml ?? null,
+      openai_api_key: openaiApiKey || null,
     }),
   });
   return readJson<{ job_token: string; status: "queued" }>(response);

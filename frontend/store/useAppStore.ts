@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import type { BackgroundSelection, JobStatus, LyricsFile, Preset, SongConfigForm, Storyboard } from "@/lib/types";
 
-type WizardStep = 0 | 1 | 2 | 3 | 4;
+type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
 
 type UploadState = {
   file: File | null;
@@ -30,6 +30,7 @@ type AppState = {
   storyboard: Storyboard | null;
   stylePrompt: string;
   songConfig: SongConfigForm;
+  openaiApiKey: string;
   exportStatus: JobStatus | null;
   error: string;
   setStep: (step: WizardStep) => void;
@@ -43,6 +44,7 @@ type AppState = {
   setStoryboard: (storyboard: Storyboard | null) => void;
   setStylePrompt: (prompt: string) => void;
   setSongConfig: (config: SongConfigForm) => void;
+  setOpenaiApiKey: (key: string) => void;
   setExportStatus: (status: JobStatus | null) => void;
   setError: (message: string) => void;
 };
@@ -66,6 +68,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   storyboard: null,
   stylePrompt: "",
   songConfig: defaultSongConfig,
+  openaiApiKey: "",
   exportStatus: null,
   error: "",
   setStep: (step) => set({ step, error: "" }),
@@ -104,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setStoryboard: (storyboard) => set({ storyboard }),
   setStylePrompt: (stylePrompt) => set({ stylePrompt }),
   setSongConfig: (songConfig) => set({ songConfig }),
+  setOpenaiApiKey: (openaiApiKey) => set({ openaiApiKey }),
   setExportStatus: (exportStatus) => set({ exportStatus }),
   setError: (error) => set({ error })
 }));

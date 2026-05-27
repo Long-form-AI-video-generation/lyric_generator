@@ -1,4 +1,4 @@
-"""Celery task entry points."""
+
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ def transcribe_job(job_token: str) -> None:
 
 
 @celery_app.task(name="backend.art_direction_job")
-def art_direction_job(job_token: str, style_prompt: str) -> None:
-    run_art_direction_job(job_token, style_prompt)
+def art_direction_job(job_token: str, style_prompt: str, openai_api_key: str | None = None) -> None:
+    run_art_direction_job(job_token, style_prompt, openai_api_key)
 
 
 @celery_app.task(name="backend.export_job")

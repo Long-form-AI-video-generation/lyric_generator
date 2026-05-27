@@ -21,18 +21,19 @@ def _queue_art_direction(
     job_token: str,
     style_prompt: str,
     background_tasks: BackgroundTasks,
+    openai_api_key: str | None = None,
 ) -> None:
     if settings.use_celery:
         try:
             from backend.tasks.celery_tasks import art_direction_job
 
-            art_direction_job.delay(job_token, style_prompt)
+            art_direction_job.delay(job_token, style_prompt, openai_api_key)
             return
         except Exception as exc:
             raise WorkerUnavailableError(
                 "Could not queue the art direction job. Is Redis running?"
             ) from exc
-    background_tasks.add_task(run_art_direction_job, job_token, style_prompt)
+    background_tasks.add_task(run_art_direction_job, job_token, style_prompt, openai_api_key)
 
 
 def _validate_song_config_yaml(yaml_text: str | None) -> None:
@@ -66,7 +67,7 @@ async def art_direct(
                 status_code=409,
             )
 
-        # Persist the request so the worker can read it
+        
         storage.write_json(
             request.job_token,
             "art_direction_request.json",
@@ -85,7 +86,12 @@ async def art_direct(
             error="",
             debug_log="",
         )
-        _queue_art_direction(request.job_token, request.style_prompt, background_tasks)
+        _queue_art_direction(
+            request.job_token,
+            request.style_prompt,
+            background_tasks,
+            openai_api_key=request.openai_api_key,
+        )
         return QueueResponse(job_token=request.job_token)
 
     except AppError as exc:

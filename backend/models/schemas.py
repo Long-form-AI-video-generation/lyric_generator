@@ -248,6 +248,13 @@ class ArtDirectRequest(BaseModel):
         description="Optional YAML song config with global_style, per-speaker styles, "
                     "section overrides, and AI background generation toggle.",
     )
+    openai_api_key: str | None = Field(
+        None,
+        max_length=300,
+        description="User-supplied OpenAI API key. When provided it overrides the server's "
+                    "OPENAI_API_KEY environment variable for this job only. "
+                    "Not persisted to disk.",
+    )
 
 
 def validation_issues(exc: ValidationError) -> ValidationIssues:

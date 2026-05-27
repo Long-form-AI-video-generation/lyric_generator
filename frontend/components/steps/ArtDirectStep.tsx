@@ -591,12 +591,13 @@ async function imageUrlToB64(url: string): Promise<string | undefined> {
 
 export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const {
-    upload, background, storyboard, stylePrompt, songConfig,
+    upload, background, storyboard, stylePrompt, songConfig, openaiApiKey,
     setStoryboard, setStylePrompt, setSongConfig, setError,
   } = useAppStore();
 
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [phaseLabel, setPhaseLabel] = useState("");
   const [localError, setLocalError] = useState("");
 
   async function generate() {
@@ -606,6 +607,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
     }
     setBusy(true);
     setProgress(0);
+    setPhaseLabel("");
     setLocalError("");
     setStoryboard(null);
     try {
@@ -618,12 +620,19 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
         stylePrompt.trim(),
         bgB64,
         formToYaml(songConfig),
+        openaiApiKey || undefined,
       );
 
       const jobStatus = await pollJobStatus(upload.jobToken, {
         timeoutMs: 15 * 60 * 1000,
         timeoutMessage: "Art direction is taking longer than expected (AI backgrounds can take several minutes). Please try again.",
-        onProgress: setProgress,
+        onProgress: (pct) => {
+          setProgress(pct);
+          if (pct < 15)        setPhaseLabel("Starting up…");
+          else if (pct < 60)   setPhaseLabel("Designing storyboard with GPT-4o…");
+          else if (pct < 95)   setPhaseLabel("Generating AI background images…");
+          else                 setPhaseLabel("Finishing up…");
+        },
       });
 
       if (jobStatus.status === "failed") {
@@ -649,8 +658,25 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
     onNext();
   }
 
+  const noKey = !openaiApiKey.trim();
+
   return (
     <div className="flex flex-1 flex-col gap-5">
+      {noKey && !busy && !storyboard && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+          <p className="text-amber-200">
+            <strong className="text-amber-100">No API key entered.</strong>{" "}
+            Go back to add your OpenAI key, or skip straight to the preview with default styling.
+          </p>
+          <button
+            type="button"
+            onClick={skip}
+            className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-500/30 hover:text-white"
+          >
+            Skip to Preview →
+          </button>
+        </div>
+      )}
       {localError ? <StatusBanner tone="error">{localError}</StatusBanner> : null}
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[1fr_360px]">
@@ -660,7 +686,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
           <div>
             <h2 className="font-display text-xl font-black tracking-normal">AI Art Direction</h2>
             <p className="mt-1 text-sm text-muted">
-              Describe your vibe and the AI designs every lyric line — fonts, colors, animations, and effects.
+              Describe your vibe and the AI designs every lyric line - fonts, colors, animations, and effects.
             </p>
           </div>
 
@@ -701,7 +727,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
               <div className="flex items-center justify-between text-sm">
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Generating storyboard…
+                  {phaseLabel || "Generating storyboard…"}
                 </span>
                 <span>{progress}%</span>
               </div>
@@ -714,7 +740,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-green-400">
-                  ✓ Storyboard ready — {storyboard.lines.length} lines directed
+                  ✓ Storyboard ready, {storyboard.lines.length} lines directed
                 </p>
                 <button
                   onClick={generate}
@@ -752,7 +778,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
             <ul className="flex flex-col gap-1.5 text-xs text-muted">
               <li className="flex gap-1.5">
                 <span className="text-violet-400 shrink-0">▸</span>
-                Re-generate with the same style to get fresh variations — the AI is creative each run
+                Re-generate with the same style to get fresh variations , the AI is creative each run
               </li>
               <li className="flex gap-1.5">
                 <span className="text-violet-400 shrink-0">▸</span>
@@ -760,19 +786,22 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
               </li>
               <li className="flex gap-1.5">
                 <span className="text-violet-400 shrink-0">▸</span>
-                <strong className="text-zinc-400">Artist Styles</strong> are great for features — each artist gets their own signature look
+                <strong className="text-zinc-400">Artist Styles</strong> are great for features , each artist gets their own signature look
               </li>
             </ul>
           </div>
           <hr className="border-border" />
-          <button
-            onClick={skip}
-            disabled={busy}
-            className="mt-auto inline-flex items-center gap-1.5 text-xs text-muted hover:text-text transition disabled:opacity-50"
-          >
-            <SkipForward className="h-3.5 w-3.5" />
-            Skip — use plain render instead
-          </button>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-zinc-400">Don't want AI styling?</p>
+            <button
+              onClick={skip}
+              disabled={busy}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <SkipForward className="h-3.5 w-3.5" />
+              Skip - go straight to preview
+            </button>
+          </div>
         </aside>
       </div>
 

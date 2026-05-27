@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 MAX_UNIQUE_IMAGES = 6
@@ -15,11 +16,10 @@ def generate_ai_backgrounds(
     openai_api_key: str,
     model: str = "gpt-image-1",
     size: str = "1536x1024",   
+    on_progress: Callable[[int], None] | None = None,
 ) -> dict[str, int]:
     
-    import openai  
-
-   
+    import openai 
     seen: dict[str, int] = {}
     for line in storyboard_lines:
         prompt = (line.get("image_prompt") or "").strip()
@@ -27,19 +27,19 @@ def generate_ai_backgrounds(
             if len(seen) < MAX_UNIQUE_IMAGES:
                 seen[prompt] = len(seen)
             else:
-                # Reuse an existing index cyclically so lines still get an image
+                
                 seen[prompt] = len(seen) % MAX_UNIQUE_IMAGES
 
     if not seen:
         return {}
 
-    # Only generate images for the first MAX_UNIQUE_IMAGES distinct indices
+    
     to_generate = {p: i for p, i in seen.items() if i < MAX_UNIQUE_IMAGES}
 
     client = openai.OpenAI(api_key=openai_api_key)
     prompt_to_index: dict[str, int] = {}
 
-    # Ensure the job directory exists (cleanup may have removed it)
+    
     job_dir.mkdir(parents=True, exist_ok=True)
 
     total = len(to_generate)
@@ -48,6 +48,8 @@ def generate_ai_backgrounds(
 
         if out_path.exists():
             prompt_to_index[prompt] = idx
+            if on_progress:
+                on_progress(round(pos / total * 100))
             continue
 
         print(f"[ai_backgrounds] Generating image {pos}/{total}: {prompt[:60]}…")
@@ -55,12 +57,12 @@ def generate_ai_backgrounds(
             response = client.images.generate(
                 model=model,
                 prompt=prompt,
-                size=size,  # type: ignore[arg-type]
+                size=size,  
                 n=1,
             )
             item = response.data[0]
 
-            # gpt-image-1 → b64_json; dall-e-3 → url
+           
             if item.b64_json:
                 job_dir.mkdir(parents=True, exist_ok=True)  # re-check before write
                 out_path.write_bytes(base64.b64decode(item.b64_json))
@@ -77,9 +79,12 @@ def generate_ai_backgrounds(
         except Exception as exc:  # noqa: BLE001
             print(f"[ai_backgrounds] Failed for prompt '{prompt[:60]}…': {exc}")
 
-        time.sleep(0.5)  # stay within rate limits
+        if on_progress:
+            on_progress(round(pos / total * 100))
 
-    # For prompts that were cycled beyond the cap, resolve to the underlying index
+        time.sleep(0.5)  
+
+   
     full_map: dict[str, int] = {}
     for prompt, idx in seen.items():
         resolved = idx % MAX_UNIQUE_IMAGES

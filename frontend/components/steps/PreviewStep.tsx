@@ -29,6 +29,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
   const [fps, setFps] = useState<30 | 60>(30);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [renderLabel, setRenderLabel] = useState("Rendering…");
   const [aiBackgrounds, setAiBackgrounds] = useState<AiBackground[]>([]);
 
   
@@ -54,6 +55,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
     }
     setBusy(true);
     setProgress(0);
+    setRenderLabel("Preparing…");
     setExportStatus(null);
     setError("");
     try {
@@ -65,7 +67,13 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
         resolution,
         fps
       });
-      const status = await pollExport(upload.jobToken, setProgress);
+      const status = await pollExport(upload.jobToken, (pct) => {
+        setProgress(pct);
+        if (pct < 36)       setRenderLabel("Preparing…");
+        else if (pct < 70)  setRenderLabel("Building frames…");
+        else if (pct < 95)  setRenderLabel("Encoding video…");
+        else                setRenderLabel("Finishing up…");
+      });
       setExportStatus(status);
       if (status.status === "failed") setError(status.error || "Export failed.");
     } catch (error) {
@@ -114,7 +122,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
             {busy ? (
               <div className="grid gap-2 rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Rendering</span>
+                  <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {renderLabel}</span>
                   <span>{progress}%</span>
                 </div>
                 <ProgressBar value={progress} />
@@ -133,12 +141,12 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
                 Export MP4
               </Button>
             )}
-            {exportStatus?.status === "failed" && exportStatus.debug_log ? (
+            {/* {exportStatus?.status === "failed" && exportStatus.debug_log ? (
               <details className="rounded-lg border border-border bg-background p-3 text-sm text-zinc-300">
                 <summary className="cursor-pointer text-zinc-100">Debug</summary>
                 <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{exportStatus.debug_log}</pre>
               </details>
-            ) : null}
+            ) : null} */}
           </div>
         </aside>
       </div>

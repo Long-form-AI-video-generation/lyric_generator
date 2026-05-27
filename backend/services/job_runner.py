@@ -1,4 +1,4 @@
-"""Synchronous job implementations used by Celery and local background tasks."""
+
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from backend.services.whisper_service import align_lyrics_text, transcribe_audio
 
 
 def _asset_dirs() -> list[Path]:
-    """Return the configured background-image directories (may be empty)."""
+   
     raw = settings.asset_dirs_raw.strip()
     if not raw:
         return []
@@ -24,7 +24,7 @@ def _asset_dirs() -> list[Path]:
 
 
 def _speaker_dirs() -> list[Path]:
-    """Return the configured speaker-photo directories (may be empty)."""
+    
     raw = settings.speaker_dirs_raw.strip()
     if not raw:
         return []
@@ -38,7 +38,6 @@ def _public_error(message: str) -> str:
 
 
 def run_transcription_job(job_token: str) -> None:
-    """Transcribe a previously uploaded audio file and persist lyrics JSON."""
 
     try:
         manifest = storage.update(
@@ -49,7 +48,11 @@ def run_transcription_job(job_token: str) -> None:
             error="",
             debug_log="",
         )
+        
+        storage.update(job_token, progress_pct=15)
         lyrics = transcribe_audio(Path(manifest.audio_path))
+        
+        storage.update(job_token, progress_pct=90)
         lyrics_path = storage.write_json(
             job_token,
             "lyrics.json",
@@ -76,7 +79,6 @@ def run_transcription_job(job_token: str) -> None:
 
 
 def run_alignment_job(job_token: str, lyrics_text: str) -> None:
-    """Align user-provided lyrics text to audio timing and persist lyrics JSON."""
 
     try:
         manifest = storage.update(
@@ -87,7 +89,11 @@ def run_alignment_job(job_token: str, lyrics_text: str) -> None:
             error="",
             debug_log="",
         )
+       
+        storage.update(job_token, progress_pct=15)
         lyrics = align_lyrics_text(Path(manifest.audio_path), lyrics_text)
+        
+        storage.update(job_token, progress_pct=90)
         lyrics_path = storage.write_json(
             job_token,
             "lyrics.json",
@@ -113,8 +119,12 @@ def run_alignment_job(job_token: str, lyrics_text: str) -> None:
         )
 
 
-def run_art_direction_job(job_token: str, style_prompt: str) -> None:
-
+def run_art_direction_job(
+    job_token: str,
+    style_prompt: str,
+    openai_api_key: str | None = None,
+) -> None:
+   
     try:
         storage.update(
             job_token,
@@ -126,7 +136,7 @@ def run_art_direction_job(job_token: str, style_prompt: str) -> None:
         )
         manifest = storage.read_manifest(job_token)
         if not manifest.lyrics_path:
-            raise RuntimeError("No lyrics.json found — run transcription or alignment first.")
+            raise RuntimeError("No lyrics.json found ,run transcription or alignment first.")
 
         lyrics_payload = json.loads(Path(manifest.lyrics_path).read_text(encoding="utf-8"))
         from backend.models.schemas import parse_lyrics_payload
@@ -142,35 +152,53 @@ def run_art_direction_job(job_token: str, style_prompt: str) -> None:
 
         song_config = parse_song_config(song_config_yaml or "")
 
+        effective_key = openai_api_key or settings.openai_api_key or None
+
+        has_ai_backgrounds = song_config.generate_ai_backgrounds and effective_key
+
+        phase_a_end = 60 if has_ai_backgrounds else 95
+
+        def on_llm_progress(chunk_pct: int) -> None:
+            mapped = round(10 + chunk_pct / 100 * (phase_a_end - 10))
+            storage.update(job_token, progress_pct=mapped)
+
         storyboard = run_art_direction(
             lyrics,
             style_prompt,
             background_image_b64=background_image_b64,
             song_config=song_config,
+            openai_api_key=effective_key,
+            on_progress=on_llm_progress,
         )
 
         storyboard_dict = storyboard.model_dump(mode="json")
 
-        # Phase A+: generate AI backgrounds if the song config requests it
-        if song_config.generate_ai_backgrounds and settings.openai_api_key:
+        
+        if has_ai_backgrounds:
             try:
                 from backend.services.ai_backgrounds import (
                     apply_ai_backgrounds_to_storyboard,
                     generate_ai_backgrounds,
                 )
 
+                
+                def on_bg_progress(img_pct: int) -> None:
+                    mapped = round(60 + img_pct / 100 * 35)
+                    storage.update(job_token, progress_pct=mapped)
+
                 job_dir = storage.job_dir(job_token)
                 prompt_to_index = generate_ai_backgrounds(
                     job_dir,
                     storyboard_dict.get("lines", []),
-                    openai_api_key=settings.openai_api_key,
+                    openai_api_key=effective_key,
+                    on_progress=on_bg_progress,
                 )
                 if prompt_to_index:
                     storyboard_dict = apply_ai_backgrounds_to_storyboard(
                         storyboard_dict, prompt_to_index
                     )
             except Exception as bg_exc:  # noqa: BLE001
-                # Non-fatal — log but let the job succeed without AI images
+                
                 print(f"[job_runner] AI background generation failed: {bg_exc}")
 
         storage.write_json(
@@ -198,7 +226,6 @@ def run_art_direction_job(job_token: str, style_prompt: str) -> None:
 
 
 def run_export_job(job_token: str) -> None:
-    """Render an MP4 from a stored export request."""
 
     try:
         storage.update(
@@ -230,15 +257,29 @@ def run_export_job(job_token: str) -> None:
         except Exception:
             pass
 
+        
+        def on_render_progress(renderer_pct: int) -> None:
+            mapped = round(35 + renderer_pct / 100 * 60)
+            storage.update(job_token, progress_pct=mapped)
+
         if storyboard_data:
             from backend.models.schemas import Storyboard
             from backend.services.moviepy_renderer import render_storyboard_video
 
             storyboard = Storyboard.model_validate(storyboard_data)
-            # Seed the asset pool with the job's own background image / preset
-            job_asset_dirs = _asset_dirs()
+
+            
+            job_dir = storage.job_dir(job_token)
+            ai_bg_files = sorted(job_dir.glob("bg_ai_*.jpg"))
+
+            job_asset_dirs = []
+            if ai_bg_files:
+                # AI images live in job_dir — put it first so indices 0-N map to them
+                job_asset_dirs.append(job_dir)
             if background_path and background_path.exists():
-                job_asset_dirs = [background_path.parent] + job_asset_dirs
+                job_asset_dirs.append(background_path.parent)
+            job_asset_dirs.extend(_asset_dirs())
+
             render_storyboard_video(
                 audio_path=Path(manifest.audio_path),
                 asset_dirs=job_asset_dirs,
@@ -248,6 +289,7 @@ def run_export_job(job_token: str) -> None:
                 output_path=output_path,
                 resolution=export_settings.resolution,
                 fps=export_settings.fps,
+                on_progress=on_render_progress,
             )
         else:
             render_lyric_video(
@@ -257,6 +299,7 @@ def run_export_job(job_token: str) -> None:
                 output_path=output_path,
                 resolution=export_settings.resolution,
                 fps=export_settings.fps,
+                on_progress=on_render_progress,
             )
         storage.update(
             job_token,
