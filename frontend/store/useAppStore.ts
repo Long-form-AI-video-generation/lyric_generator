@@ -1,9 +1,9 @@
 "use client";
 
 import { create } from "zustand";
-import type { BackgroundSelection, JobStatus, LyricsFile, Preset } from "@/lib/types";
+import type { BackgroundSelection, JobStatus, LyricsFile, Preset, Storyboard } from "@/lib/types";
 
-type WizardStep = 0 | 1 | 2 | 3;
+type WizardStep = 0 | 1 | 2 | 3 | 4;
 
 type UploadState = {
   file: File | null;
@@ -21,6 +21,8 @@ type AppState = {
   originalLyrics: LyricsFile | null;
   presets: Preset[];
   background: BackgroundSelection | null;
+  storyboard: Storyboard | null;
+  stylePrompt: string;
   exportStatus: JobStatus | null;
   error: string;
   setStep: (step: WizardStep) => void;
@@ -31,6 +33,8 @@ type AppState = {
   resetLyrics: () => void;
   setPresets: (presets: Preset[]) => void;
   setBackground: (background: BackgroundSelection) => void;
+  setStoryboard: (storyboard: Storyboard | null) => void;
+  setStylePrompt: (prompt: string) => void;
   setExportStatus: (status: JobStatus | null) => void;
   setError: (message: string) => void;
 };
@@ -51,6 +55,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   originalLyrics: null,
   presets: [],
   background: null,
+  storyboard: null,
+  stylePrompt: "",
   exportStatus: null,
   error: "",
   setStep: (step) => set({ step, error: "" }),
@@ -65,6 +71,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       lyrics: null,
       originalLyrics: null,
       background: null,
+      storyboard: null,
+      stylePrompt: "",
       exportStatus: null,
       error: ""
     });
@@ -83,6 +91,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setPresets: (presets) => set({ presets }),
   setBackground: (background) => set({ background, error: "" }),
+  setStoryboard: (storyboard) => set({ storyboard }),
+  setStylePrompt: (stylePrompt) => set({ stylePrompt }),
   setExportStatus: (exportStatus) => set({ exportStatus }),
   setError: (error) => set({ error })
 }));

@@ -5,12 +5,13 @@ import { RotateCcw } from "lucide-react";
 import { UploadStep } from "@/components/steps/UploadStep";
 import { LyricsStep } from "@/components/steps/LyricsStep";
 import { BackgroundStep } from "@/components/steps/BackgroundStep";
+import { ArtDirectStep } from "@/components/steps/ArtDirectStep";
 import { PreviewStep } from "@/components/steps/PreviewStep";
 import { Button } from "@/components/ui/Button";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
 
-const steps = ["Upload", "Lyrics", "Background", "Preview"];
+const steps = ["Upload", "Lyrics", "Background", "Art Direction", "Preview"];
 
 export function LyricVideoWizard() {
   const { step, setStep, reset, upload, lyrics, background, error } = useAppStore();
@@ -18,14 +19,15 @@ export function LyricVideoWizard() {
   const canContinue =
     (step === 0 && Boolean(upload.jobToken)) ||
     (step === 1 && Boolean(lyrics?.lines.length)) ||
-    (step === 2 && Boolean(background));
+    (step === 2 && Boolean(background)) ||
+    step === 3; 
 
   function next() {
-    if (step < 3 && canContinue) setStep((step + 1) as 0 | 1 | 2 | 3);
+    if (step < 4 && canContinue) setStep((step + 1) as 0 | 1 | 2 | 3 | 4);
   }
 
   function back() {
-    if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3);
+    if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3 | 4);
   }
 
   return (
@@ -79,7 +81,8 @@ export function LyricVideoWizard() {
             {step === 0 ? <UploadStep onNext={next} /> : null}
             {step === 1 ? <LyricsStep onNext={next} onBack={back} /> : null}
             {step === 2 ? <BackgroundStep onNext={next} onBack={back} /> : null}
-            {step === 3 ? <PreviewStep onBack={back} /> : null}
+            {step === 3 ? <ArtDirectStep onNext={next} onBack={back} /> : null}
+            {step === 4 ? <PreviewStep onBack={back} /> : null}
           </motion.section>
         </AnimatePresence>
       </main>

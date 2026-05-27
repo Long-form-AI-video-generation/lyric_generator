@@ -10,6 +10,13 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv as _load_dotenv
+
+    _load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+except ImportError:
+    pass
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -62,6 +69,16 @@ class Settings:
     whisper_device: str = os.getenv("WHISPER_DEVICE", "cpu")
 
     hide_internal_errors: bool = _bool_env("HIDE_INTERNAL_ERRORS", False)
+
+   
+    llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    art_direction_model_openai: str = os.getenv("ART_DIRECTION_MODEL", "gpt-4o")
+    art_direction_model_anthropic: str = os.getenv("ART_DIRECTION_MODEL", "claude-sonnet-4-6")
+   
+    asset_dirs_raw: str = os.getenv("LYRICVID_ASSET_DIRS", "")
+    speaker_dirs_raw: str = os.getenv("LYRICVID_SPEAKER_DIRS", "")
 
 
 RESOLUTIONS: dict[str, tuple[int, int]] = {

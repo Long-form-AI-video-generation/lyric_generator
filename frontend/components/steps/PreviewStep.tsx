@@ -21,7 +21,7 @@ async function pollExport(jobToken: string, onProgress: (pct: number) => void) {
 }
 
 export function PreviewStep({ onBack }: { onBack: () => void }) {
-  const { upload, lyrics, background, exportStatus, setExportStatus, setError } = useAppStore();
+  const { upload, lyrics, background, storyboard, exportStatus, setExportStatus, setError } = useAppStore();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -81,7 +81,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
 
         <div className="grid gap-3">
-          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} />
+          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} />
           <AudioPlayer src={upload.objectUrl} audioRef={audioRef} onTimeChange={setCurrentTime} onPlayingChange={setPlaying} />
         </div>
 

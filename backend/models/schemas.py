@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from enum import Enum
 from typing import Any, Literal
 
@@ -13,6 +14,7 @@ from backend.core.config import FPS_VALUES, RESOLUTIONS
 class JobPhase(str, Enum):
     uploaded = "uploaded"
     transcribing = "transcribing"
+    art_directing = "art_directing"
     rendering = "rendering"
 
 
@@ -137,6 +139,78 @@ class JobManifest(BaseModel):
     debug_log: str | None = None
     created_at: float
     updated_at: float
+
+
+# ---------------------------------------------------------------------------
+# Storyboard schemas (Phase A / art direction)
+# ---------------------------------------------------------------------------
+
+class AnimationStyle(str, Enum):
+    fade_in = "fade-in"
+    typewriter = "typewriter"
+    glitch = "glitch"
+    slide_from_left = "slide-from-left"
+    slide_from_right = "slide-from-right"
+    zoom_in = "zoom-in"
+    pop = "pop"
+
+
+class TextPosition(BaseModel):
+    x_pct: float = Field(50.0, ge=0, le=100, description="Horizontal centre as % of frame width")
+    y_pct: float = Field(50.0, ge=0, le=100, description="Vertical centre as % of frame height")
+
+
+class BackgroundTreatment(BaseModel):
+    image_index: int = Field(0, ge=0, description="Which image from the asset pool to use (cycled)")
+    filter: str = Field("none", description="One of: none, blur, desaturate, color_shift, glitch, vhs")
+    speaker_distortion: str = Field(
+        "none",
+        description="One of: none, chromatic_aberration, pixel_sort, datamosh",
+    )
+    speaker_opacity: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class LineDirection(BaseModel):
+    """Per-lyric-line visual directions produced by the art direction pass."""
+
+    line_id: int
+    font: str = Field("default", description="Font name from the supported set")
+    text_color: str = Field("#FFFFFF", description="Hex colour for the lyric text")
+    font_size_pct: float = Field(
+        5.2, ge=1.0, le=20.0,
+        description="Font size as a percentage of the frame height",
+    )
+    position: TextPosition = Field(default_factory=TextPosition)
+    animation: AnimationStyle = AnimationStyle.fade_in
+    background: BackgroundTreatment = Field(default_factory=BackgroundTreatment)
+    transition: str = Field("cut", description="One of: cut, fade, slide")
+    image_prompt: str | None = Field(
+        None,
+        description="Optional Stable Diffusion / FLUX prompt for AI-generated background",
+    )
+
+
+class Storyboard(BaseModel):
+    """Full art direction storyboard for one song."""
+
+    title: str
+    style_prompt: str
+    lines: list[LineDirection]
+    created_at: float = Field(default_factory=time.time)
+
+
+class ArtDirectRequest(BaseModel):
+    job_token: str
+    style_prompt: str = Field(..., min_length=1, max_length=2000)
+    ai_image_generation: bool = Field(
+        False,
+        description="When True, image_prompt fields are sent to a diffusion API",
+    )
+    background_image_b64: str | None = Field(
+        None,
+        description="Base64-encoded JPEG thumbnail of the chosen background (no data: prefix). "
+                    "Passed to the vision model so it can choose contrasting text colors.",
+    )
 
 
 def validation_issues(exc: ValidationError) -> ValidationIssues:
