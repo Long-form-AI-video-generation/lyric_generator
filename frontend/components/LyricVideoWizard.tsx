@@ -5,13 +5,14 @@ import { RotateCcw } from "lucide-react";
 import { UploadStep } from "@/components/steps/UploadStep";
 import { LyricsStep } from "@/components/steps/LyricsStep";
 import { BackgroundStep } from "@/components/steps/BackgroundStep";
+import { ApiKeyStep } from "@/components/steps/ApiKeyStep";
 import { ArtDirectStep } from "@/components/steps/ArtDirectStep";
 import { PreviewStep } from "@/components/steps/PreviewStep";
 import { Button } from "@/components/ui/Button";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
 
-const steps = ["Upload", "Lyrics", "Background", "Art Direction", "Preview"];
+const steps = ["Upload", "Lyrics", "Background", "API Key", "Art Direction", "Preview"];
 
 export function LyricVideoWizard() {
   const { step, setStep, reset, upload, lyrics, background, error } = useAppStore();
@@ -20,14 +21,15 @@ export function LyricVideoWizard() {
     (step === 0 && Boolean(upload.jobToken)) ||
     (step === 1 && Boolean(lyrics?.lines.length)) ||
     (step === 2 && Boolean(background)) ||
-    step === 3; 
+    step === 3 || 
+    step === 4;
 
   function next() {
-    if (step < 4 && canContinue) setStep((step + 1) as 0 | 1 | 2 | 3 | 4);
+    if (step < 5 && canContinue) setStep((step + 1) as 0 | 1 | 2 | 3 | 4 | 5);
   }
 
   function back() {
-    if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3 | 4);
+    if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3 | 4 | 5);
   }
 
   return (
@@ -61,7 +63,7 @@ export function LyricVideoWizard() {
               key={label}
               className={`h-1 ${index <= step ? "bg-primary" : "bg-zinc-800"}`}
               aria-label={label}
-              onClick={() => index < step && setStep(index as 0 | 1 | 2 | 3)}
+              onClick={() => index < step && setStep(index as 0 | 1 | 2 | 3 | 4 | 5)}
             />
           ))}
         </div>
@@ -81,8 +83,9 @@ export function LyricVideoWizard() {
             {step === 0 ? <UploadStep onNext={next} /> : null}
             {step === 1 ? <LyricsStep onNext={next} onBack={back} /> : null}
             {step === 2 ? <BackgroundStep onNext={next} onBack={back} /> : null}
-            {step === 3 ? <ArtDirectStep onNext={next} onBack={back} /> : null}
-            {step === 4 ? <PreviewStep onBack={back} /> : null}
+            {step === 3 ? <ApiKeyStep onNext={next} onBack={back} /> : null}
+            {step === 4 ? <ArtDirectStep onNext={next} onBack={back} /> : null}
+            {step === 5 ? <PreviewStep onBack={back} /> : null}
           </motion.section>
         </AnimatePresence>
       </main>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import type { LyricsFile, LyricLine, Storyboard, StoryboardLine } from "@/lib/types";
+import type { AiBackground, LyricsFile, LyricLine, Storyboard, StoryboardLine } from "@/lib/types";
 
 type LyricCanvasProps = {
   lyrics: LyricsFile | null;
@@ -12,6 +12,7 @@ type LyricCanvasProps = {
   currentTime: number;
   playing: boolean;
   storyboard?: Storyboard | null;
+  aiBackgrounds?: AiBackground[];
 };
 
 const FONT_MAP: Record<string, string> = {
@@ -26,6 +27,16 @@ const FONT_MAP: Record<string, string> = {
   TrajanPro:     '"Trajan Pro", Georgia, serif',
   SourceCodePro: '"Source Code Pro", "Courier New", monospace',
   default:       "Montserrat, Inter, sans-serif",
+};
+
+
+const BG_FILTERS: Record<string, string> = {
+  none:         "none",
+  blur:         "blur(6px) brightness(0.85)",
+  desaturate:   "grayscale(90%) brightness(0.9)",
+  color_shift:  "hue-rotate(120deg) saturate(1.4)",
+  glitch:       "saturate(2) contrast(1.2)",
+  vhs:          "contrast(1.1) brightness(0.9) sepia(0.3)",
 };
 
 function cssFont(name: string, sizePx: number, weight = 800) {
@@ -69,7 +80,6 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   return lines.slice(0, 3);
 }
 
-
 const FADE_IN_S  = 0.22;
 const FADE_OUT_S = 0.28;
 
@@ -112,6 +122,40 @@ function computeAnimState(
   }
 }
 
+function drawBackground(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement | null,
+  width: number,
+  height: number,
+  filter: string,
+  isCustom: boolean,
+) {
+  if (!image) {
+    const grad = ctx.createLinearGradient(0, 0, width, height);
+    grad.addColorStop(0, "#101827");
+    grad.addColorStop(1, "#020203");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
+
+  const scale = Math.max(width / image.width, height / image.height);
+  const dw = image.width  * scale;
+  const dh = image.height * scale;
+  const dx = (width  - dw) / 2;
+  const dy = (height - dh) / 2;
+
+  const cssFilter = BG_FILTERS[filter] ?? "none";
+  const baseFilter = isCustom ? "blur(2px) brightness(0.75)" : "none";
+  ctx.filter = baseFilter !== "none" || cssFilter !== "none"
+    ? [baseFilter, cssFilter].filter(f => f !== "none").join(" ") || "none"
+    : "none";
+
+  const pad = isCustom ? 24 : 0;
+  ctx.drawImage(image, dx - pad, dy - pad, dw + pad * 2, dh + pad * 2);
+  ctx.filter = "none";
+}
+
 function drawLine(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -124,7 +168,7 @@ function drawLine(
   const fontSize    = Math.round(height * fontSizePct / 100);
   const fontName    = direction?.font      ?? "default";
   const colorHex    = direction?.text_color ?? "#FFFFFF";
-  const xPct        = direction?.position.x_pct ?? 50;
+  const xPct        = 50; 
   const yPct        = direction?.position.y_pct ?? 50;
 
   const displayText = animState.chars !== null ? text.slice(0, animState.chars) : text;
@@ -141,22 +185,21 @@ function drawLine(
     ctx.translate(-cx, -cy);
   }
 
-  ctx.font          = cssFont(fontName, fontSize);
-  ctx.textAlign     = "center";
-  ctx.textBaseline  = "middle";
+  ctx.font         = cssFont(fontName, fontSize);
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "middle";
 
   const wrapped    = wrapText(ctx, displayText, width * 0.84);
   const lineHeight = fontSize * 1.22;
   const totalH     = (wrapped.length - 1) * lineHeight;
   const startY     = cy - totalH / 2;
 
-  
   if (direction?.animation === "glitch" && animState.alpha > 0.5) {
     const shift = Math.round(fontSize * 0.08);
     ctx.globalAlpha = animState.alpha * 0.5;
-    ctx.fillStyle   = `rgba(255,0,80,0.6)`;
+    ctx.fillStyle   = "rgba(255,0,80,0.6)";
     wrapped.forEach((ln, i) => ctx.fillText(ln, cx + shift, startY + i * lineHeight));
-    ctx.fillStyle   = `rgba(0,200,255,0.6)`;
+    ctx.fillStyle   = "rgba(0,200,255,0.6)";
     wrapped.forEach((ln, i) => ctx.fillText(ln, cx - shift, startY + i * lineHeight));
   }
 
@@ -178,16 +221,21 @@ export function LyricCanvas({
   currentTime,
   playing,
   storyboard,
+  aiBackgrounds = [],
 }: LyricCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imageRef  = useRef<HTMLImageElement | null>(null);
+  const canvasRef      = useRef<HTMLCanvasElement | null>(null);
+  const imageRef       = useRef<HTMLImageElement | null>(null);              // preset/upload bg
+  const aiImagesRef    = useRef<Map<number, HTMLImageElement>>(new Map());  // index → ai image
+  const lastAiBgIdxRef = useRef<number>(0);                                 // last-seen ai bg index
 
+  // Build direction lookup
   const directionMap = useRef<Map<number, StoryboardLine>>(new Map());
   useEffect(() => {
     directionMap.current = new Map(storyboard?.lines.map((d) => [d.line_id, d]) ?? []);
   }, [storyboard]);
 
- useEffect(() => {
+  // Resize canvas buffer to match CSS display size × DPR
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const observer = new ResizeObserver((entries) => {
@@ -204,15 +252,36 @@ export function LyricCanvas({
     return () => observer.disconnect();
   }, []);
 
+  
   useEffect(() => {
     if (!backgroundUrl) { imageRef.current = null; return; }
-    const img      = new Image();
+    const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src         = backgroundUrl;
-    img.onload      = () => { imageRef.current = img; };
+    img.src = backgroundUrl;
+    img.onload = () => { imageRef.current = img; };
     return () => { img.onload = null; };
   }, [backgroundUrl]);
 
+  
+  useEffect(() => {
+    if (!aiBackgrounds.length) { aiImagesRef.current = new Map(); return; }
+    const map = new Map<number, HTMLImageElement>();
+    for (const bg of aiBackgrounds) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => { map.set(bg.index, img); };
+      img.src = bg.url;
+    }
+    aiImagesRef.current = map;
+    return () => {
+      for (const bg of aiBackgrounds) {
+        const img = map.get(bg.index);
+        if (img) img.onload = null;
+      }
+    };
+  }, [aiBackgrounds]);
+
+  // Render loop
   useEffect(() => {
     let frame = 0;
 
@@ -224,41 +293,40 @@ export function LyricCanvas({
       const dpr    = window.devicePixelRatio || 1;
       const width  = canvas.width  / dpr;
       const height = canvas.height / dpr;
-      const image  = imageRef.current;
 
       ctx.clearRect(0, 0, width, height);
 
-      // Background
-      if (image) {
-        const scale = Math.max(width / image.width, height / image.height);
-        const dw = image.width  * scale;
-        const dh = image.height * scale;
-        const dx = (width  - dw) / 2;
-        const dy = (height - dh) / 2;
-        if (isCustomBackground) {
-          const pad = 24;
-          ctx.filter = "blur(2px) brightness(0.75)";
-          ctx.drawImage(image, dx - pad, dy - pad, dw + pad * 2, dh + pad * 2);
-          ctx.filter = "none";
-        } else {
-          ctx.drawImage(image, dx, dy, dw, dh);
+      // Pick background image: AI bg by image_index if available, else preset/upload
+      const time      = audioRef.current?.currentTime ?? currentTime;
+      const active    = lyrics ? activeLineAt(lyrics.lines, time) : null;
+      const direction = active ? (directionMap.current.get(active.line.id) ?? null) : null;
+
+      let bgImage: HTMLImageElement | null = null;
+      let bgFilter = "none";
+      const aiMap = aiImagesRef.current;
+
+      if (aiMap.size > 0) {
+        
+        if (direction) {
+          const rawIdx = direction.background.image_index;
+          const indices = Array.from(aiMap.keys()).sort((a, b) => a - b);
+          const idx = indices[rawIdx % indices.length];
+          lastAiBgIdxRef.current = idx;
+          bgFilter = direction.background.filter;
         }
+        bgImage = aiMap.get(lastAiBgIdxRef.current) ?? aiMap.values().next().value ?? null;
       } else {
-        const grad = ctx.createLinearGradient(0, 0, width, height);
-        grad.addColorStop(0, "#101827");
-        grad.addColorStop(1, "#020203");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, width, height);
+        bgImage = imageRef.current;
       }
 
-      ctx.fillStyle = isCustomBackground ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.18)";
+      drawBackground(ctx, bgImage, width, height, bgFilter, aiMap.size === 0 && isCustomBackground);
+
+      // Dark overlay
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
       ctx.fillRect(0, 0, width, height);
 
-      // Active lyric line
-      const time   = audioRef.current?.currentTime ?? currentTime;
-      const active = lyrics ? activeLineAt(lyrics.lines, time) : null;
+      
       if (active) {
-        const direction = directionMap.current.get(active.line.id) ?? null;
         const animState = computeAnimState(
           direction?.animation ?? "fade-in",
           time, active.line.start, active.end,
@@ -272,7 +340,7 @@ export function LyricCanvas({
 
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [audioRef, currentTime, lyrics, playing, backgroundUrl, isCustomBackground]);
+  }, [audioRef, currentTime, lyrics, playing, backgroundUrl, isCustomBackground, aiBackgrounds]);
 
   return (
     <canvas

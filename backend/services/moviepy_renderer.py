@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
+import proglog
 from PIL import Image, ImageDraw, ImageFont
 
 from backend.core.config import RESOLUTIONS
@@ -241,6 +244,30 @@ _ANIM_BUILDERS = {
     AnimationStyle.pop: _anim_pop,
 }
 
+class _ProgressLogger(proglog.ProgressBarLogger):
+
+
+    def __init__(self, on_progress: Callable[[int], None]) -> None:
+        super().__init__(logged_bars="all", min_time_interval=0.5)
+        self._on_progress = on_progress
+        self._total: int | None = None
+
+    def bars_callback(self, bar: str, attr: str, value: int, old_value: int | None = None) -> None:
+        if bar != "frame_index":
+            return
+        if attr == "total":
+            self._total = int(value) if value else None
+        elif attr == "index" and self._total:
+            pct = round(int(value) / self._total * 100)
+            self._on_progress(pct)
+
+
+def _img_clip(img: Image.Image, duration: float):
+   
+    from moviepy import ImageClip  
+    return ImageClip(np.array(img.convert("RGB"))).with_duration(duration)
+
+
 def _default_direction(line_id: int) -> LineDirection:
     from backend.models.schemas import BackgroundTreatment, TextPosition
 
@@ -265,9 +292,10 @@ def render_storyboard_video(
     output_path: Path,
     resolution: str = "1080p",
     fps: int = 30,
+    on_progress: Callable[[int], None] | None = None,
 ) -> Path:
    
-    from moviepy import AudioFileClip, ImageClip, concatenate_videoclips
+    from moviepy import AudioFileClip, concatenate_videoclips
 
     if resolution not in RESOLUTIONS:
         raise ValueError(f"Unsupported resolution: {resolution!r}")
@@ -277,7 +305,11 @@ def render_storyboard_video(
 
     background_images = load_background_images(asset_dirs)
     speaker_images = load_speaker_images(speaker_dirs or [])
-    fallback_bg = Image.new("RGB", (width, height), (0, 0, 0))
+
+    if background_images:
+        fallback_bg = prepare_background(background_images[0], width, height)
+    else:
+        fallback_bg = Image.new("RGB", (width, height), (0, 0, 0))
 
     direction_map: dict[int, LineDirection] = {d.line_id: d for d in storyboard.lines}
     frame_dur = 1.0 / fps
@@ -285,9 +317,10 @@ def render_storyboard_video(
     ANIM_FRAME_COUNT = max(4, round(0.25 * fps))
 
     clips = []
+    last_bg = fallback_bg
 
     if lyrics.lines[0].start > 0.01:
-        clips.append(ImageClip(fallback_bg).with_duration(lyrics.lines[0].start))
+        clips.append(_img_clip(fallback_bg, lyrics.lines[0].start))
 
     for i, line in enumerate(lyrics.lines):
         next_line = lyrics.lines[i + 1] if i + 1 < len(lyrics.lines) else None
@@ -309,7 +342,9 @@ def render_storyboard_video(
         else:
             bg = fallback_bg.copy()
 
-        # Optionally composite a speaker photo on top
+        last_bg = bg  
+
+       
         if speaker_images and direction.background.speaker_opacity > 0:
             sp_idx = direction.background.image_index % len(speaker_images)
             bg = composite_speaker(
@@ -322,23 +357,24 @@ def render_storyboard_video(
         builder = _ANIM_BUILDERS.get(direction.animation, _anim_fade_in)
         anim_frames = builder(bg, line.text, direction, width, height, anim_frames_count)
 
-        anim_clips = [ImageClip(f).with_duration(frame_dur) for f in anim_frames]
+        anim_clips = [_img_clip(f, frame_dur) for f in anim_frames]
         if anim_clips:
             clips.append(concatenate_videoclips(anim_clips))
 
         hold_dur = max(0.0, display_dur - anim_frames_count * frame_dur)
         if hold_dur > 0.01:
             hold_frame = _make_text_frame(bg, line.text, direction, width, height, 1.0)
-            clips.append(ImageClip(hold_frame).with_duration(hold_dur))
+            clips.append(_img_clip(hold_frame, hold_dur))
 
         if next_line and display_end < next_line.start - frame_dur:
             gap = next_line.start - display_end
-            clips.append(ImageClip(bg).with_duration(gap))
+            clips.append(_img_clip(bg, gap))
 
     duration = lyrics.duration_seconds or (max(ln.end for ln in lyrics.lines) + 2.0)
     last_end = lyrics.lines[-1].end
     if last_end < duration - 0.1:
-        clips.append(ImageClip(fallback_bg).with_duration(duration - last_end))
+        
+        clips.append(_img_clip(last_bg, duration - last_end))
 
     if not clips:
         raise RuntimeError("No video clips were generated — the lyrics list may be empty.")
@@ -349,12 +385,13 @@ def render_storyboard_video(
     final_dur = min(audio.duration, video.duration)
     video = video.with_audio(audio.subclipped(0, final_dur))
 
+    logger = _ProgressLogger(on_progress) if on_progress else None
     video.write_videofile(
         str(output_path),
         fps=fps,
         codec="libx264",
         audio_codec="aac",
-        logger=None,
+        logger=logger,
     )
 
     if not output_path.exists() or output_path.stat().st_size == 0:

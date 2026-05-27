@@ -1,10 +1,10 @@
 "use client";
 
 import { ChevronLeft, Download, FileWarning, Film, Loader2 } from "lucide-react";
-import { useRef, useState } from "react";
-import { downloadUrl, startExport } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { downloadUrl, getAiBackgrounds, startExport } from "@/lib/api";
 import { pollJobStatus } from "@/lib/jobs";
-import type { ExportResolution } from "@/lib/types";
+import type { AiBackground, ExportResolution } from "@/lib/types";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { LyricCanvas } from "@/components/LyricCanvas";
 import { Button } from "@/components/ui/Button";
@@ -29,6 +29,16 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
   const [fps, setFps] = useState<30 | 60>(30);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [renderLabel, setRenderLabel] = useState("Rendering…");
+  const [aiBackgrounds, setAiBackgrounds] = useState<AiBackground[]>([]);
+
+  
+  useEffect(() => {
+    if (!upload.jobToken) return;
+    getAiBackgrounds(upload.jobToken)
+      .then(setAiBackgrounds)
+      .catch(() => setAiBackgrounds([]));
+  }, [upload.jobToken, storyboard]);
 
   const ready = Boolean(upload.objectUrl && lyrics?.lines.length && background);
   const resultUrl = exportStatus?.result_url ? downloadUrl(exportStatus.result_url) : null;
@@ -45,6 +55,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
     }
     setBusy(true);
     setProgress(0);
+    setRenderLabel("Preparing…");
     setExportStatus(null);
     setError("");
     try {
@@ -56,7 +67,13 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
         resolution,
         fps
       });
-      const status = await pollExport(upload.jobToken, setProgress);
+      const status = await pollExport(upload.jobToken, (pct) => {
+        setProgress(pct);
+        if (pct < 36)       setRenderLabel("Preparing…");
+        else if (pct < 70)  setRenderLabel("Building frames…");
+        else if (pct < 95)  setRenderLabel("Encoding video…");
+        else                setRenderLabel("Finishing up…");
+      });
       setExportStatus(status);
       if (status.status === "failed") setError(status.error || "Export failed.");
     } catch (error) {
@@ -81,7 +98,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
 
         <div className="grid gap-3">
-          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} />
+          <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} aiBackgrounds={aiBackgrounds} />
           <AudioPlayer src={upload.objectUrl} audioRef={audioRef} onTimeChange={setCurrentTime} onPlayingChange={setPlaying} />
         </div>
 
@@ -105,7 +122,7 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
             {busy ? (
               <div className="grid gap-2 rounded-lg border border-border bg-background p-3">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Rendering</span>
+                  <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {renderLabel}</span>
                   <span>{progress}%</span>
                 </div>
                 <ProgressBar value={progress} />
@@ -124,12 +141,12 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
                 Export MP4
               </Button>
             )}
-            {exportStatus?.status === "failed" && exportStatus.debug_log ? (
+            {/* {exportStatus?.status === "failed" && exportStatus.debug_log ? (
               <details className="rounded-lg border border-border bg-background p-3 text-sm text-zinc-300">
                 <summary className="cursor-pointer text-zinc-100">Debug</summary>
                 <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{exportStatus.debug_log}</pre>
               </details>
-            ) : null}
+            ) : null} */}
           </div>
         </aside>
       </div>

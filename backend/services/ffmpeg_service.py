@@ -1,15 +1,10 @@
-"""FFmpeg orchestration for MP4 rendering.
-
-Text is rendered with Pillow so no FFmpeg text filter (ass / drawtext / libass /
-libfreetype) is required — only libx264 and aac, which are universally available.
-Frames are fed to FFmpeg via the concat demuxer.
-"""
 
 from __future__ import annotations
 
 import os
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from backend.core.config import RESOLUTIONS
@@ -20,19 +15,15 @@ FADE_OUT_S = 0.3
 
 
 class RenderError(RuntimeError):
-    """Raised when FFmpeg fails to render a video."""
+   
 
     def __init__(self, message: str, stderr: str = "") -> None:
         super().__init__(message)
         self.stderr = stderr
 
 
-# ---------------------------------------------------------------------------
-# Pillow helpers
-# ---------------------------------------------------------------------------
-
 def _load_font(font_size: int):
-    """Return a PIL font at *font_size* pixels, falling back to the built-in default."""
+    
     from PIL import ImageFont
 
     candidates = [
@@ -64,7 +55,7 @@ def _text_width(font, text: str) -> int:
         bbox = font.getbbox(text)
         return bbox[2] - bbox[0]
     except AttributeError:
-        w, _ = font.getsize(text)  # old Pillow fallback
+        w, _ = font.getsize(text) 
         return w
 
 
@@ -85,7 +76,7 @@ def _word_wrap(text: str, font, max_width: int) -> list[str]:
 
 
 def _prepare_background(background_path: Path, width: int, height: int):
-    """Load the background image, cover-crop to target size, apply dark overlay."""
+    
     from PIL import Image
 
     img = Image.open(background_path).convert("RGB")
@@ -99,7 +90,7 @@ def _prepare_background(background_path: Path, width: int, height: int):
 
 
 def _make_text_overlay(text: str, font, font_size: int, width: int, height: int):
-    """Render text centred on a transparent RGBA canvas at full opacity."""
+    
     from PIL import Image, ImageDraw
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -120,22 +111,17 @@ def _make_text_overlay(text: str, font, font_size: int, width: int, height: int)
 
 
 def _composite(bg_rgba, text_overlay, alpha_f: float):
-    """Alpha-composite text_overlay (at scaled opacity) onto bg_rgba."""
+    
     from PIL import Image
 
     if alpha_f >= 0.999:
         return Image.alpha_composite(bg_rgba, text_overlay).convert("RGB")
 
-    # Scale text overlay alpha channel
     r, g, b, a = text_overlay.split()
     a = a.point(lambda v: int(v * alpha_f))
     scaled = Image.merge("RGBA", (r, g, b, a))
     return Image.alpha_composite(bg_rgba, scaled).convert("RGB")
 
-
-# ---------------------------------------------------------------------------
-# Main renderer
-# ---------------------------------------------------------------------------
 
 def render_lyric_video(
     *,
@@ -145,8 +131,9 @@ def render_lyric_video(
     output_path: Path,
     resolution: str = "1080p",
     fps: int = 30,
+    on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-    """Render a lyric MP4 using Pillow (text) + FFmpeg (encoding)."""
+    
 
     if resolution not in RESOLUTIONS:
         raise ValueError(f"Unsupported resolution: {resolution}")
@@ -162,12 +149,12 @@ def render_lyric_video(
     bg_rgba = bg.convert("RGBA")
 
     frame_dur = 1.0 / fps
-    fi_frames = round(FADE_IN_S * fps)   # number of fade-in frames
-    fo_frames = round(FADE_OUT_S * fps)  # number of fade-out frames
+    fi_frames = round(FADE_IN_S * fps)   
+    fo_frames = round(FADE_OUT_S * fps)  
     lines = lyrics.lines
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Save reusable background frame once
+        
         bg_path = os.path.join(tmpdir, "bg.png")
         bg.save(bg_path, "PNG")
 
@@ -181,25 +168,26 @@ def render_lyric_video(
         def add_bg(dur: float) -> None:
             add(bg_path, dur)
 
-        # Silence before lyrics
+       
         if lines[0].start > 0.01:
             add_bg(lines[0].start)
 
+        n_lines = len(lines)
         for i, line in enumerate(lines):
             next_line = lines[i + 1] if i + 1 < len(lines) else None
             display_end = min(line.end, next_line.start) if next_line else line.end
             display_dur = max(0.0, display_end - line.start)
 
-            # Cap fades so they fit inside the display window
+            
             max_fade_frames = max(0, int(display_dur * fps) - 1)
             fi = min(fi_frames, max_fade_frames // 2)
             fo = min(fo_frames, max_fade_frames - fi)
             full_dur = display_dur - (fi + fo) * frame_dur
 
-            # Pre-render full-opacity text overlay once per lyric line
+            
             text_overlay = _make_text_overlay(line.text, font, font_size, width, height)
 
-            # Fade-in frames
+            
             for k in range(1, fi + 1):
                 alpha = k / fi
                 frame = _composite(bg_rgba, text_overlay, alpha)
@@ -207,13 +195,13 @@ def render_lyric_video(
                 frame.save(p, "PNG")
                 add(p, frame_dur)
 
-            # Full-opacity segment (save once, reference in concat)
+            
             if full_dur > 0:
                 p = os.path.join(tmpdir, f"f{i:04d}_full.png")
                 _composite(bg_rgba, text_overlay, 1.0).save(p, "PNG")
                 add(p, max(full_dur, frame_dur))
 
-            # Fade-out frames
+            
             for k in range(fo, 0, -1):
                 alpha = k / fo
                 frame = _composite(bg_rgba, text_overlay, alpha)
@@ -221,18 +209,22 @@ def render_lyric_video(
                 frame.save(p, "PNG")
                 add(p, frame_dur)
 
-            # Gap between this lyric and the next
+            
             if next_line and display_end < next_line.start - 0.01:
                 add_bg(next_line.start - display_end)
 
-        # Silence after last lyric
+            
+            if on_progress:
+                on_progress(round((i + 1) / n_lines * 65))
+
+        
         last_end = lines[-1].end
         if last_end < duration - 0.1:
             add_bg(duration - last_end)
 
-        # FFmpeg concat demuxer requires a trailing file entry with no duration
+        
         if concat_lines:
-            last_file = concat_lines[-2]  # last "file '...'" line
+            last_file = concat_lines[-2]  
             concat_lines.append(last_file)
 
         concat_path = os.path.join(tmpdir, "concat.txt")
@@ -259,6 +251,10 @@ def render_lyric_video(
             "-movflags", "+faststart",
             str(output_path),
         ]
+
+       
+        if on_progress:
+            on_progress(70)
 
         try:
             subprocess.run(command, check=True, capture_output=True, text=True)

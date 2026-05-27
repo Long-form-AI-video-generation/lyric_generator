@@ -141,9 +141,40 @@ class JobManifest(BaseModel):
     updated_at: float
 
 
-# ---------------------------------------------------------------------------
-# Storyboard schemas (Phase A / art direction)
-# ---------------------------------------------------------------------------
+class SpeakerStyle(BaseModel):
+    """Visual style applied to every lyric line spoken by a named speaker."""
+
+    font: str = "default"
+    text_color: str = "#FFFFFF"
+    animation: str = "fade-in"
+    font_size_pct: float = Field(6.5, ge=1.0, le=20.0)
+    position_y_pct: float = Field(50.0, ge=0, le=100)
+
+
+class SectionOverride(BaseModel):
+    """Additional style instructions applied to specific song sections."""
+
+    sections: list[str] = Field(..., description="Section names, e.g. ['chorus', 'bridge']")
+    style: str = Field(..., description="Extra style instruction for these sections")
+
+
+class SongConfig(BaseModel):
+    """Full per-song art direction configuration."""
+
+    global_style: str = Field(
+        "",
+        description="Free-text style brief that overrides / extends the prompt textarea",
+    )
+    speakers: dict[str, SpeakerStyle] = Field(
+        default_factory=dict,
+        description="Map of speaker name → visual style applied when that speaker's lines are detected",
+    )
+    section_overrides: list[SectionOverride] = Field(default_factory=list)
+    generate_ai_backgrounds: bool = Field(
+        False,
+        description="When True, call DALL-E 3 to generate images for each unique image_prompt in the storyboard",
+    )
+
 
 class AnimationStyle(str, Enum):
     fade_in = "fade-in"
@@ -210,6 +241,19 @@ class ArtDirectRequest(BaseModel):
         None,
         description="Base64-encoded JPEG thumbnail of the chosen background (no data: prefix). "
                     "Passed to the vision model so it can choose contrasting text colors.",
+    )
+    song_config_yaml: str | None = Field(
+        None,
+        max_length=20_000,
+        description="Optional YAML song config with global_style, per-speaker styles, "
+                    "section overrides, and AI background generation toggle.",
+    )
+    openai_api_key: str | None = Field(
+        None,
+        max_length=300,
+        description="User-supplied OpenAI API key. When provided it overrides the server's "
+                    "OPENAI_API_KEY environment variable for this job only. "
+                    "Not persisted to disk.",
     )
 
 
