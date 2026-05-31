@@ -663,7 +663,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
   return (
     <div className="flex flex-1 flex-col gap-5">
       {noKey && !busy && !storyboard && (
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <p className="text-amber-200">
             <strong className="text-amber-100">No API key entered.</strong>{" "}
             Go back to add your OpenAI key, or skip straight to the preview with default styling.
@@ -671,7 +671,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
           <button
             type="button"
             onClick={skip}
-            className="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-500/30 hover:text-white"
+            className="shrink-0 self-start rounded-lg border border-amber-500/40 bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-500/30 hover:text-white sm:self-auto"
           >
             Skip to Preview →
           </button>
@@ -679,7 +679,7 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
       )}
       {localError ? <StatusBanner tone="error">{localError}</StatusBanner> : null}
 
-      <div className="grid flex-1 gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 lg:flex-1 lg:grid-cols-[1fr_360px]">
 
        
         <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4">
@@ -755,8 +755,8 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
           )}
         </div>
 
-     
-        <aside className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 text-sm">
+
+        <aside className="hidden flex-col gap-3 rounded-xl border border-border bg-surface p-4 text-sm lg:flex">
           <h3 className="font-display text-base font-black tracking-normal">What this does</h3>
           <ul className="flex flex-col gap-2 text-muted">
             <li className="flex gap-2">
@@ -806,24 +806,35 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
       </div>
 
      
-      <div className="mt-auto flex gap-3">
-        <Button variant="secondary" className="h-12 px-5" onClick={onBack} disabled={busy}>
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-          Back
-        </Button>
-        <Button
-          className="h-12 flex-1 text-base"
-          onClick={storyboard ? onNext : generate}
-          disabled={busy || !stylePrompt.trim()}
+      <div className="mt-auto flex flex-col gap-2">
+        <div className="flex gap-3">
+          <Button variant="secondary" className="h-12 px-5" onClick={onBack} disabled={busy}>
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Back
+          </Button>
+          <Button
+            className="h-12 flex-1 text-base"
+            onClick={storyboard ? onNext : generate}
+            disabled={busy || !stylePrompt.trim()}
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : storyboard ? (
+              <>Next <ChevronRight className="h-4 w-4" aria-hidden /></>
+            ) : (
+              <><Sparkles className="h-4 w-4" aria-hidden /> Generate</>
+            )}
+          </Button>
+        </div>
+        <button
+          type="button"
+          onClick={skip}
+          disabled={busy}
+          className="inline-flex items-center justify-center gap-1.5 py-1 text-xs text-muted transition hover:text-text disabled:opacity-50 lg:hidden"
         >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : storyboard ? (
-            <>Next <ChevronRight className="h-4 w-4" aria-hidden /></>
-          ) : (
-            <><Sparkles className="h-4 w-4" aria-hidden /> Generate</>
-          )}
-        </Button>
+          <SkipForward className="h-3.5 w-3.5" />
+          Skip — go straight to preview
+        </button>
       </div>
     </div>
   );

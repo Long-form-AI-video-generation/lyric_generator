@@ -67,9 +67,9 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
   if (!lyrics) {
     return (
       <div className="flex flex-1 flex-col gap-5">
-        <div className="grid flex-1 gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:flex-1 lg:grid-cols-2">
           {/* Auto-generate card */}
-          <div className="flex flex-col justify-between rounded-xl border border-border bg-surface p-6">
+          <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-6">
             <div>
               <div className="mb-4 grid h-12 w-12 place-items-center rounded-lg bg-violet-500/15 text-violet-100">
                 <Wand2 className="h-6 w-6" aria-hidden />
@@ -79,7 +79,7 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
                 Whisper runs on the backend and detects lyrics with timestamps from the audio.
               </p>
             </div>
-            <div className="mt-8 grid gap-4">
+            <div className="mt-4 grid gap-4">
               {generateBusy ? (
                 <div className="grid gap-2">
                   <div className="flex items-center justify-between text-sm text-zinc-200">
@@ -98,8 +98,8 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
           </div>
 
           {/* Paste lyrics card */}
-          <div className="flex flex-col justify-between rounded-xl border border-border bg-surface p-6">
-            <div className="flex flex-1 flex-col">
+          <div className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-6">
+            <div className="flex flex-col">
               <div className="mb-4 grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/15 text-emerald-100">
                 <AlignLeft className="h-6 w-6" aria-hidden />
               </div>
@@ -116,7 +116,7 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
                 spellCheck={false}
               />
             </div>
-            <div className="mt-4 grid gap-3">
+            <div className="grid gap-3">
               {alignError ? <StatusBanner tone="error">{alignError}</StatusBanner> : null}
               {alignBusy ? (
                 <div className="grid gap-2">
@@ -154,8 +154,8 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
 
   return (
     <div className="flex flex-1 flex-col gap-5">
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.8fr)]">
-        <div className="min-h-0 rounded-xl border border-border bg-surface p-4">
+      <div className="grid gap-4 md:min-h-0 md:flex-1 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.8fr)]">
+        <div className="rounded-xl border border-border bg-surface p-4 md:min-h-0">
           <LyricEditor
             lyrics={lyrics}
             onChange={(next) => setLyrics(next)}

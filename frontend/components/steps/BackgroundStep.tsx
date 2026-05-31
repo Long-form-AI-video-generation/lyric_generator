@@ -63,7 +63,7 @@ export function BackgroundStep({ onNext, onBack }: { onNext: () => void; onBack:
   return (
     <div className="flex flex-1 flex-col gap-5">
       {loadError ? <StatusBanner>{loadError}</StatusBanner> : null}
-      <div className="grid flex-1 gap-4 lg:grid-cols-[1.3fr_0.8fr]">
+      <div className="grid gap-4 lg:flex-1 lg:grid-cols-[1.3fr_0.8fr]">
         <div className="rounded-xl border border-border bg-surface p-4">
           <h2 className="mb-4 font-display text-xl font-black tracking-normal">Presets</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -98,7 +98,7 @@ export function BackgroundStep({ onNext, onBack }: { onNext: () => void; onBack:
         <div className="flex flex-col rounded-xl border border-border bg-surface p-4">
           <h2 className="mb-4 font-display text-xl font-black tracking-normal">Upload</h2>
           <label
-            className={`grid min-h-[260px] flex-1 cursor-pointer place-items-center rounded-lg border border-dashed p-6 text-center transition ${
+            className={`grid min-h-[160px] flex-1 cursor-pointer place-items-center rounded-lg border border-dashed p-6 text-center transition md:min-h-[260px] ${
               dragging ? "border-primary bg-violet-500/10 shadow-glow" : "border-border bg-background"
             }`}
             onDragOver={(event) => {

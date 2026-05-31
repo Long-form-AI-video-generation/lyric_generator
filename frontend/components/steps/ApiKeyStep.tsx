@@ -18,7 +18,7 @@ export function ApiKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () 
 
   return (
     <div className="flex flex-1 flex-col gap-5">
-      <div className="grid flex-1 gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="grid gap-4 lg:flex-1 lg:grid-cols-[1fr_340px]">
 
         {/* Main card */}
         <div className="flex flex-col gap-6 rounded-xl border border-border bg-surface p-6">
@@ -103,7 +103,7 @@ export function ApiKeyStep({ onNext, onBack }: { onNext: () => void; onBack: () 
         </div>
 
         {/* Sidebar */}
-        <aside className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 text-sm">
+        <aside className="hidden flex-col gap-4 rounded-xl border border-border bg-surface p-4 text-sm lg:flex">
           <div className="flex items-center gap-2">
             <KeyRound className="h-4 w-4 shrink-0 text-violet-400" />
             <h3 className="font-display text-base font-black tracking-normal">Privacy</h3>
