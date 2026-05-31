@@ -53,11 +53,11 @@ export function LyricVideoWizard() {
           <div className="flex justify-end">
             <Button variant="ghost" onClick={reset}>
               <RotateCcw className="h-4 w-4" aria-hidden />
-              Start Over
+              <span className="hidden sm:inline">Start Over</span>
             </Button>
           </div>
         </div>
-        <div className="grid grid-cols-4 md:hidden">
+        <div className="grid grid-cols-6 md:hidden">
           {steps.map((label, index) => (
             <button
               key={label}

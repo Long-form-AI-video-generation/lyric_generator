@@ -95,14 +95,14 @@ export function PreviewStep({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="flex flex-1 flex-col gap-5">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
 
         <div className="grid gap-3">
           <LyricCanvas lyrics={lyrics} backgroundUrl={background.previewUrl} isCustomBackground={background.type === "upload"} audioRef={audioRef} currentTime={currentTime} playing={playing} storyboard={storyboard} aiBackgrounds={aiBackgrounds} />
           <AudioPlayer src={upload.objectUrl} audioRef={audioRef} onTimeChange={setCurrentTime} onPlayingChange={setPlaying} />
         </div>
 
-        <aside className="rounded-xl border border-border bg-surface p-4">
+        <aside className="h-fit rounded-xl border border-border bg-surface p-4">
           <h2 className="mb-4 font-display text-xl font-black tracking-normal">Export</h2>
           <div className="grid gap-4">
             <label className="grid gap-2 text-sm font-medium text-zinc-200">

@@ -99,7 +99,53 @@ export function LyricEditor({ lyrics, onChange, onReset, onUploadLyrics }: Lyric
         </div>
       </div>
       {jsonError ? <StatusBanner tone="error">{jsonError}</StatusBanner> : null}
-      <div className="min-h-[360px] overflow-auto rounded-lg border border-border">
+
+      {/* Mobile card list */}
+      <div className="flex flex-col gap-2 md:hidden">
+        {lyrics.lines.map((line, index) => (
+          <div key={line.id} className="rounded-lg border border-border bg-surface p-3 odd:bg-surface even:bg-surface2">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-muted">#{index + 1}</span>
+              <Button variant="ghost" className="h-7 w-7 px-0" onClick={() => deleteLine(line.id)} aria-label={`Delete line ${index + 1}`}>
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </div>
+            <input
+              className="focus-ring mb-2 h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-text"
+              value={line.text}
+              onChange={(event) => updateLine(line.id, { text: event.target.value })}
+              aria-label={`Line ${index + 1} text`}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted">Start (s)</span>
+                <input
+                  className="focus-ring h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-text"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={line.start}
+                  onChange={(event) => updateLine(line.id, { start: Number(event.target.value) })}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted">End (s)</span>
+                <input
+                  className="focus-ring h-9 w-full rounded-md border border-border bg-background px-2 text-sm text-text"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={line.end}
+                  onChange={(event) => updateLine(line.id, { end: Number(event.target.value) })}
+                />
+              </label>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden min-h-[360px] overflow-auto rounded-lg border border-border md:block">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-950 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
@@ -124,7 +170,7 @@ export function LyricEditor({ lyrics, onChange, onReset, onUploadLyrics }: Lyric
                   <input className="focus-ring h-9 w-full rounded-md border border-border bg-background px-2 text-text" type="number" min={0} step={0.01} value={line.end} onChange={(event) => updateLine(line.id, { end: Number(event.target.value) })} />
                 </td>
                 <td className="px-3 py-2">
-                  <Button variant="ghost" className="h-9 w-9 px-0 opacity-70 md:opacity-0 md:group-hover:opacity-100" onClick={() => deleteLine(line.id)} aria-label={`Delete line ${index + 1}`}>
+                  <Button variant="ghost" className="h-9 w-9 px-0 opacity-0 group-hover:opacity-100" onClick={() => deleteLine(line.id)} aria-label={`Delete line ${index + 1}`}>
                     <Trash2 className="h-4 w-4" aria-hidden />
                   </Button>
                 </td>

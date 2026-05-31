@@ -75,7 +75,7 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="flex flex-1 flex-col gap-5">
       <div
-        className={`grid min-h-[360px] place-items-center rounded-xl border border-dashed p-8 transition ${
+        className={`grid min-h-[200px] place-items-center rounded-xl border border-dashed p-6 transition md:min-h-[360px] md:p-8 ${
           dragging ? "border-primary bg-violet-500/10 shadow-glow" : "border-border bg-surface"
         }`}
         onDragOver={(event) => {
@@ -91,12 +91,12 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
       >
         <label className="flex w-full max-w-2xl cursor-pointer flex-col items-center gap-5 text-center">
           <input type="file" accept="audio/mpeg,audio/wav,.mp3,.wav" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
-          <div className="grid h-16 w-16 place-items-center rounded-xl border border-violet-500/30 bg-violet-500/15">
-            <CloudUpload className="h-8 w-8 text-violet-200" aria-hidden />
+          <div className="grid h-12 w-12 place-items-center rounded-xl border border-violet-500/30 bg-violet-500/15 md:h-16 md:w-16">
+            <CloudUpload className="h-6 w-6 text-violet-200 md:h-8 md:w-8" aria-hidden />
           </div>
           <div>
-            <div className="font-display text-3xl font-black tracking-normal">Upload audio</div>
-            <div className="mt-2 text-sm text-muted">MP3 or WAV, up to 200 MB</div>
+            <div className="font-display text-2xl font-black tracking-normal md:text-3xl">Upload audio</div>
+            <div className="mt-1 text-sm text-muted md:mt-2">MP3 or WAV, up to 200 MB</div>
           </div>
           <Button variant="secondary" asChild><span>Choose File</span></Button>
         </label>

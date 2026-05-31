@@ -21,26 +21,28 @@ export async function pollJobStatus(jobToken: string, options: PollJobOptions): 
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const deadline = Date.now() + options.timeoutMs;
 
-  let backendProgress = 0;   
-  let displayProgress = 0;   
+  let backendProgress = 0;
+  let displayProgress = 0;
 
   const emit = (pct: number) => options.onProgress?.(Math.round(Math.min(100, pct)));
 
-  
+  // Tick every 600 ms. Uses an exponential approach toward 90% so the bar
+  // keeps moving even when the backend never reports intermediate progress
+  // (e.g. Whisper stays at 0% until it finishes). Each tick closes 2.5% of
+  // the remaining gap to the ceiling, giving a natural deceleration.
   const TICK_MS = 600;
-  const TICK_STEP = 1.2; 
-  
-  const LOOKAHEAD = 8;
+  const CREEP_CEILING = 90;
   let tickHandle: ReturnType<typeof setInterval> | null = null;
 
   if (options.onProgress) {
     tickHandle = setInterval(() => {
-     
-      const cap = Math.min(92, backendProgress + LOOKAHEAD);
-      if (displayProgress < cap) {
-        displayProgress = Math.min(cap, displayProgress + TICK_STEP);
-        emit(displayProgress);
+      if (displayProgress < CREEP_CEILING) {
+        const gap = CREEP_CEILING - displayProgress;
+        displayProgress = Math.min(CREEP_CEILING, displayProgress + Math.max(0.15, gap * 0.025));
       }
+      // Never let the display fall behind what the backend reported
+      displayProgress = Math.max(displayProgress, backendProgress);
+      emit(displayProgress);
     }, TICK_MS);
   }
 
