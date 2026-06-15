@@ -70,14 +70,16 @@ class Settings:
 
     hide_internal_errors: bool = _bool_env("HIDE_INTERNAL_ERRORS", False)
 
-   
+
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    openai_proxy_url: str = os.getenv("OPENAI_PROXY_URL", "")
     art_direction_model_openai: str = os.getenv("ART_DIRECTION_MODEL", "gpt-4o")
     art_direction_model_anthropic: str = os.getenv("ART_DIRECTION_MODEL", "claude-sonnet-4-6")
    
     asset_dirs_raw: str = os.getenv("LYRICVID_ASSET_DIRS", "")
+   
     speaker_dirs_raw: str = os.getenv("LYRICVID_SPEAKER_DIRS", "")
 
 

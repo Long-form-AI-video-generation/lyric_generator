@@ -23,12 +23,47 @@ def _asset_dirs() -> list[Path]:
     return [Path(p.strip()) for p in raw.split(",") if p.strip()]
 
 
-def _speaker_dirs() -> list[Path]:
+def _speaker_image_map(job_token: str, extra_name_dirs: dict[str, str] | None = None) -> dict[str, list[Path]]:
+    
+    from backend.services.asset_pipeline import load_background_images
+
+    result: dict[str, list[Path]] = {}
+
+    
+    speakers_dir = storage.job_dir(job_token) / "speakers"
+    if speakers_dir.is_dir():
+        for slug_dir in sorted(speakers_dir.iterdir()):
+            if not slug_dir.is_dir():
+                continue
+            name_file = slug_dir / ".artist_name"
+            # Recover original name from manifest, fall back to slug
+            artist_name = name_file.read_text(encoding="utf-8").strip() if name_file.exists() else slug_dir.name
+            images = load_background_images([slug_dir])
+            if images:
+                result.setdefault(artist_name.lower(), []).extend(images)
+
+    
+    if extra_name_dirs:
+        for name, path_str in extra_name_dirs.items():
+            images = load_background_images([Path(path_str)])
+            if images:
+                result.setdefault(name.lower(), []).extend(images)
+
     
     raw = settings.speaker_dirs_raw.strip()
-    if not raw:
-        return []
-    return [Path(p.strip()) for p in raw.split(",") if p.strip()]
+    if raw:
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            if "=" in token:
+                name, _, path_str = token.partition("=")
+                images = load_background_images([Path(path_str.strip())])
+                result.setdefault(name.strip().lower(), []).extend(images)
+            else:
+                result.setdefault("", []).extend(load_background_images([Path(token)]))
+
+    return result
 
 
 def _public_error(message: str) -> str:
@@ -162,6 +197,8 @@ def run_art_direction_job(
             mapped = round(10 + chunk_pct / 100 * (phase_a_end - 10))
             storage.update(job_token, progress_pct=mapped)
 
+        artist_names = list(song_config.speakers.keys()) if song_config.speakers else None
+
         storyboard = run_art_direction(
             lyrics,
             style_prompt,
@@ -169,6 +206,7 @@ def run_art_direction_job(
             song_config=song_config,
             openai_api_key=effective_key,
             on_progress=on_llm_progress,
+            artist_names=artist_names,
         )
 
         storyboard_dict = storyboard.model_dump(mode="json")
@@ -268,7 +306,6 @@ def run_export_job(job_token: str) -> None:
 
             storyboard = Storyboard.model_validate(storyboard_data)
 
-            
             job_dir = storage.job_dir(job_token)
             ai_bg_files = sorted(job_dir.glob("bg_ai_*.jpg"))
 
@@ -283,7 +320,7 @@ def run_export_job(job_token: str) -> None:
             render_storyboard_video(
                 audio_path=Path(manifest.audio_path),
                 asset_dirs=job_asset_dirs,
-                speaker_dirs=_speaker_dirs(),
+                speaker_image_map=_speaker_image_map(job_token),
                 lyrics=lyrics,
                 storyboard=storyboard,
                 output_path=output_path,

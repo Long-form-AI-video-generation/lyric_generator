@@ -76,6 +76,7 @@ Required JSON schema:
   "lines": [
     {
       "line_id": <integer matching the supplied id>,
+      "speaker_name": "<artist name exactly as provided in the lyrics, or null if unknown/both>",
       "font": "<one of: Impact, AvenirNext, Bebas, Montserrat, CourierNew, \
 Georgia, Helvetica, SourceCodePro, TrajanPro, FuturaBold>",
       "text_color": "<CSS hex — must contrast clearly against the background>",
@@ -87,7 +88,8 @@ slide-from-right, zoom-in, pop>",
         "image_index": <integer>,
         "filter": "<one of: none, blur, desaturate, color_shift, glitch, vhs>",
         "speaker_distortion": "<one of: none, chromatic_aberration, pixel_sort, datamosh>",
-        "speaker_opacity": <0.0–1.0>
+        "speaker_opacity": <0.0–1.0>,
+        "co_speakers": ["<artist name>", ...]
       },
       "transition": "<one of: cut, fade, slide>",
       "image_prompt": "<Stable Diffusion prompt or null>"
@@ -102,6 +104,21 @@ carefully, then choose text colors that are clearly READABLE against it.
 - Glitch/distortion effects are for intense moments only.
 - y_pct must stay between 20–80.  font_size_pct must be at least 5.0.
 - Every line_id must exactly match one from the input.
+- speaker_name: each input line is prefixed with [Speaker: Name] when known — \
+copy that name exactly into speaker_name. For lines sung by multiple artists or \
+with no speaker label, use null. When per-speaker styles are configured, apply \
+that speaker's font/color/animation/position_y_pct to their lines.
+- co_speakers: when a line is sung by multiple artists together (chorus, hook, \
+duet bridge), list ALL their names in co_speakers even though speaker_name is null. \
+Only include artists that have photos available (listed in the artist roster). \
+For solo lines or lines with no known artists, set co_speakers to [].
+- Artist photos and distortion: when artist photos are available, you MUST decide \
+the best distortion for each artist based on their genre, energy, and the song's mood. \
+Use chromatic_aberration for high-energy/glitch aesthetics, pixel_sort for \
+electronic/intense sections, datamosh for chaotic/climactic moments, and none for \
+clean/emotional moments. Set speaker_opacity between 0.3–0.7 for solo lines.
+- For co_speakers lines (multiple artists), set speaker_opacity to 0.6 so the \
+composite of their photos fills the background dramatically.
 - image_prompt: choose ONLY 5–8 distinct prompts for the ENTIRE song that \
 represent its main visual themes (e.g. setting, mood, key imagery). \
 Reuse the SAME prompt string across many lines — the filters, distortions, \
@@ -116,7 +133,8 @@ def _call_openai(
     attempt_label: str = "",
     openai_api_key: str | None = None,
 ) -> str:
-    import openai  
+    import httpx
+    import openai
 
     api_key = openai_api_key or settings.openai_api_key
     if not api_key:
@@ -125,7 +143,9 @@ def _call_openai(
             "Please enter your key on the API Key page"
         )
 
-    client = openai.OpenAI(api_key=api_key)
+    proxy_url = settings.openai_proxy_url or None
+    http_client = httpx.Client(proxy=proxy_url, timeout=60.0) if proxy_url else None
+    client = openai.OpenAI(api_key=api_key, http_client=http_client)
 
     if background_image_b64:
         user_content: Any = [
@@ -149,61 +169,62 @@ def _call_openai(
         user_content = lyrics_text
 
     last_err: Exception | None = None
-    for attempt in range(1, 4):
-        response = client.chat.completions.create(
-            model=settings.art_direction_model_openai,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": user_content},
-            ],
-            max_tokens=4096,  
-        )
-        choice = response.choices[0]
-        content = (choice.message.content or "").strip()
+    try:
+        for attempt in range(1, 4):
+            response = client.chat.completions.create(
+                model=settings.art_direction_model_openai,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_content},
+                ],
+                max_tokens=4096,
+            )
+            choice = response.choices[0]
+            content = (choice.message.content or "").strip()
 
-        
-        refusal = getattr(choice.message, "refusal", None)
-        _LOG.info(
-            "OpenAI %s attempt %d/3: finish_reason=%r content_len=%d refusal=%r",
-            attempt_label, attempt, choice.finish_reason, len(content), refusal,
-        )
-
-        if refusal:
-            raise RuntimeError(
-                f"OpenAI refused to generate the storyboard: {refusal}. "
-                "Try rephrasing your style description."
+            refusal = getattr(choice.message, "refusal", None)
+            _LOG.info(
+                "OpenAI %s attempt %d/3: finish_reason=%r content_len=%d refusal=%r",
+                attempt_label, attempt, choice.finish_reason, len(content), refusal,
             )
 
-        finish_reason = choice.finish_reason or "unknown"
-        if finish_reason == "length":
-            raise RuntimeError(
-                "OpenAI cut the storyboard short. "
-                "This should not happen with chunked lyrics — please report this."
-            )
-        if finish_reason == "content_filter":
-            raise RuntimeError(
-                "OpenAI filtered the response. Try a different style description."
-            )
-
-        if content:
-            
-            if _is_refusal(content):
-                _LOG.warning(
-                    "OpenAI %s attempt %d/3: soft refusal detected — retrying. "
-                    "Content preview: %r",
-                    attempt_label, attempt, content[:120],
+            if refusal:
+                raise RuntimeError(
+                    f"OpenAI refused to generate the storyboard: {refusal}. "
+                    "Try rephrasing your style description."
                 )
-                last_err = RuntimeError(_REFUSAL_USER_MSG)
-                time.sleep(1.0)
-                continue
-            return content
 
-        last_err = RuntimeError(
-            f"OpenAI empty response on attempt {attempt}/3 "
-            f"(finish_reason={finish_reason!r})"
-        )
+            finish_reason = choice.finish_reason or "unknown"
+            if finish_reason == "length":
+                raise RuntimeError(
+                    "OpenAI cut the storyboard short. "
+                    "This should not happen with chunked lyrics — please report this."
+                )
+            if finish_reason == "content_filter":
+                raise RuntimeError(
+                    "OpenAI filtered the response. Try a different style description."
+                )
 
-   
+            if content:
+                if _is_refusal(content):
+                    _LOG.warning(
+                        "OpenAI %s attempt %d/3: soft refusal detected — retrying. "
+                        "Content preview: %r",
+                        attempt_label, attempt, content[:120],
+                    )
+                    last_err = RuntimeError(_REFUSAL_USER_MSG)
+                    time.sleep(1.0)
+                    continue
+                return content
+
+            last_err = RuntimeError(
+                f"OpenAI empty response on attempt {attempt}/3 "
+                f"(finish_reason={finish_reason!r})"
+            )
+    finally:
+        if http_client:
+            http_client.close()
+
     if last_err and _REFUSAL_USER_MSG in str(last_err):
         raise RuntimeError(_REFUSAL_USER_MSG) from last_err
 
@@ -330,11 +351,15 @@ def _build_song_config_context(song_config: SongConfig | None) -> str:
         rows: list[str] = []
         for name, style in song_config.speakers.items():
             rows.append(
-                f"  {name}: font={style.font}, color={style.text_color}, "
+                f"  \"{name}\": font={style.font}, color={style.text_color}, "
                 f"animation={style.animation}, font_size_pct={style.font_size_pct}, "
                 f"position_y_pct={style.position_y_pct}"
+                + (f", has_photo=true" if style.image_dir else "")
             )
-        parts.append("Per-speaker styles:\n" + "\n".join(rows))
+        parts.append(
+            "Per-speaker styles — MUST apply these exactly when speaker_name matches "
+            "(match case-insensitively):\n" + "\n".join(rows)
+        )
 
     if song_config.section_overrides:
         rows2: list[str] = []
@@ -359,6 +384,7 @@ def run_art_direction(
     song_config: SongConfig | None = None,
     openai_api_key: str | None = None,
     on_progress: Callable[[int], None] | None = None,
+    artist_names: list[str] | None = None,
 ) -> Storyboard:
     
 
@@ -382,7 +408,9 @@ def run_art_direction(
 
     for chunk_idx, chunk in enumerate(chunks):
         lyrics_block = "\n".join(
-            f"[{ln.id}] ({ln.start:.2f}s–{ln.end:.2f}s)  {ln.text}"
+            f"[{ln.id}] ({ln.start:.2f}s–{ln.end:.2f}s)"
+            + (f" [Speaker: {ln.speaker}]" if ln.speaker else "")
+            + f"  {ln.text}"
             for ln in chunk
         )
 
@@ -392,10 +420,20 @@ def run_art_direction(
             else ""
         )
 
+        artist_roster = ""
+        if artist_names:
+            roster_list = ", ".join(artist_names)
+            artist_roster = (
+                f"\nArtist roster (these artists have photos available): {roster_list}\n"
+                f"Use this roster to populate co_speakers on lines sung together, "
+                f"and to decide distortion style per artist.\n"
+            )
+
         user_message = (
             f"Song title: {lyrics.title}\n"
             f"Style brief: {style_prompt}\n"
             + (f"\n{config_context}\n" if config_context else "")
+            + artist_roster
             + f"\n{chunk_header}"
             + f"Lyrics:\n{lyrics_block}"
         )
@@ -419,6 +457,7 @@ def run_art_direction(
         {"title": lyrics.title, "lines": all_raw_lines},
         lyrics,
         style_prompt,
+        song_config=song_config,
     )
 
 
@@ -430,8 +469,24 @@ def _build_storyboard(
     payload: dict[str, Any],
     lyrics: LyricsFile,
     style_prompt: str,
+    *,
+    song_config: "SongConfig | None" = None,
 ) -> Storyboard:
     valid_ids = {ln.id for ln in lyrics.lines}
+    lyrics_by_id: dict[int, LyricLine] = {ln.id: ln for ln in lyrics.lines}
+
+   
+    speaker_styles: dict[str, Any] = {}
+    if song_config and song_config.speakers:
+        for name, style in song_config.speakers.items():
+            speaker_styles[name.lower()] = style
+
+   
+    known_artists: dict[str, str] = {}
+    if song_config and song_config.speakers:
+        for name in song_config.speakers:
+            known_artists[name.lower()] = name
+
     parsed_lines: list[LineDirection] = []
 
     for item in payload.get("lines", []):
@@ -451,22 +506,71 @@ def _build_storyboard(
         except ValueError:
             animation = AnimationStyle.fade_in
 
+        
+        llm_speaker = item.get("speaker_name") or None
+        source_line = lyrics_by_id.get(line_id)
+        resolved_speaker = llm_speaker or (source_line.speaker if source_line else None)
+
+        
+        font       = item.get("font", "default")
+        text_color = item.get("text_color", "#FFFFFF")
+        font_size  = max(5.0, float(item.get("font_size_pct", 6.5)))
+        pos_x      = float(pos.get("x_pct", 50))
+        pos_y      = float(pos.get("y_pct", 50))
+
+       
+        if resolved_speaker:
+            sp_style = speaker_styles.get(resolved_speaker.lower())
+            if sp_style:
+                if sp_style.font and sp_style.font != "default":
+                    font = sp_style.font
+                if sp_style.text_color:
+                    text_color = sp_style.text_color
+                try:
+                    animation = AnimationStyle(sp_style.animation)
+                except ValueError:
+                    pass
+                font_size = float(sp_style.font_size_pct)
+                pos_y     = float(sp_style.position_y_pct)
+
+        
+        speaker_opacity = float(bg.get("speaker_opacity", 0.0))
+        if resolved_speaker and speaker_styles.get(resolved_speaker.lower()) and speaker_opacity == 0.0:
+            speaker_opacity = 0.5
+
+        
+        raw_co = bg.get("co_speakers") or []
+        co_speakers: list[str] = []
+        if isinstance(raw_co, list):
+            for name in raw_co:
+                if isinstance(name, str) and name.strip():
+                    canonical = known_artists.get(name.strip().lower())
+                    if canonical:
+                        co_speakers.append(canonical)
+
+        
+        if not co_speakers and resolved_speaker is None and len(known_artists) >= 2:
+            co_speakers = list(known_artists.values())
+
+        
+        if co_speakers and speaker_opacity == 0.0:
+            speaker_opacity = 0.6
+
         parsed_lines.append(
             LineDirection(
                 line_id=line_id,
-                font=item.get("font", "default"),
-                text_color=item.get("text_color", "#FFFFFF"),
-                font_size_pct=max(5.0, float(item.get("font_size_pct", 6.5))),
-                position=TextPosition(
-                    x_pct=float(pos.get("x_pct", 50)),
-                    y_pct=float(pos.get("y_pct", 50)),
-                ),
+                speaker_name=resolved_speaker,
+                font=font,
+                text_color=text_color,
+                font_size_pct=font_size,
+                position=TextPosition(x_pct=pos_x, y_pct=pos_y),
                 animation=animation,
                 background=BackgroundTreatment(
                     image_index=int(bg.get("image_index", 0)),
                     filter=bg.get("filter", "none"),
                     speaker_distortion=bg.get("speaker_distortion", "none"),
-                    speaker_opacity=float(bg.get("speaker_opacity", 0.0)),
+                    speaker_opacity=speaker_opacity,
+                    co_speakers=co_speakers,
                 ),
                 transition=item.get("transition", "cut"),
                 image_prompt=item.get("image_prompt") or None,

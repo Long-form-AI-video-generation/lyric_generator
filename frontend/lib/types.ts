@@ -39,9 +39,11 @@ export type StoryboardLine = {
     filter: string;
     speaker_distortion: string;
     speaker_opacity: number;
+    co_speakers: string[];
   };
   transition: string;
   image_prompt: string | null;
+  speaker_name: string | null;
 };
 
 export type Storyboard = {
@@ -82,6 +84,8 @@ export type SpeakerConfig = {
   animation: string;
   font_size_pct: number;
   position_y_pct: number;
+  image_file: File | null;
+  image_preview: string;   // object URL for thumbnail display
 };
 
 export type SectionRule = {
@@ -91,6 +95,7 @@ export type SectionRule = {
 };
 
 export type SongConfigForm = {
+  global_style: string;
   speakers: SpeakerConfig[];
   section_rules: SectionRule[];
   generate_ai_backgrounds: boolean;

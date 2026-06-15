@@ -1,8 +1,3 @@
-"""Whisper transcription boundary.
-
-This module deliberately imports Whisper libraries only inside the execution
-path, so the API and tests remain light on machines that cannot run the model.
-"""
 
 from __future__ import annotations
 
@@ -18,7 +13,7 @@ def _title_from_filename(path: Path) -> str:
 
 
 def transcribe_with_openai_whisper(audio_path: Path) -> LyricsFile:
-    """Transcribe audio with openai-whisper and return segment-level lyrics."""
+   
 
     import torch
     import whisper
@@ -54,7 +49,7 @@ def transcribe_with_openai_whisper(audio_path: Path) -> LyricsFile:
 
 
 def transcribe_with_faster_whisper(audio_path: Path) -> LyricsFile:
-    """Transcribe audio with faster-whisper and return segment-level lyrics."""
+    
 
     from faster_whisper import WhisperModel
 
@@ -93,8 +88,7 @@ def transcribe_with_faster_whisper(audio_path: Path) -> LyricsFile:
 
 
 def transcribe_audio(audio_path: Path) -> LyricsFile:
-    """Run the configured Whisper backend."""
-
+    
     if settings.whisper_backend == "faster-whisper":
         return transcribe_with_faster_whisper(audio_path)
     return transcribe_with_openai_whisper(audio_path)
@@ -105,7 +99,7 @@ def _strip(w: str) -> str:
 
 
 def _words_to_lines(user_lines: list[str], aligned_words: list[dict], duration: float) -> list[LyricLine]:
-    """Map a flat list of {start, end} word dicts back to user lyric lines by word count."""
+    
     lines: list[LyricLine] = []
     word_cursor = 0
     for line_idx, user_line in enumerate(user_lines):
@@ -136,7 +130,7 @@ def _words_to_lines(user_lines: list[str], aligned_words: list[dict], duration: 
 
 
 def _align_with_whisperx(audio_path: Path, user_lines: list[str]) -> LyricsFile:
-    """Primary path: WhisperX CTC forced alignment — no re-transcription."""
+    
     import whisperx
 
     device = settings.whisper_device
@@ -172,12 +166,7 @@ def _align_with_whisperx(audio_path: Path, user_lines: list[str]) -> LyricsFile:
 
 
 def _align_with_whisper_fallback(audio_path: Path, user_lines: list[str]) -> LyricsFile:
-    """Fallback: Whisper word timestamps + difflib SequenceMatcher alignment.
-
-    Uses initial_prompt to guide Whisper toward the user's words, then uses
-    SequenceMatcher (LCS-based) instead of a greedy window to match them —
-    much more tolerant of Whisper mishearing singing.
-    """
+    
     import difflib
     import torch
     import whisper
@@ -210,7 +199,7 @@ def _align_with_whisper_fallback(audio_path: Path, user_lines: list[str]) -> Lyr
     if not whisper_words:
         raise RuntimeError("Whisper did not return word-level timestamps.")
 
-    # Flatten user words keeping track of which line each belongs to.
+   
     user_flat: list[tuple[int, str]] = []
     for line_idx, line in enumerate(user_lines):
         for word in line.split():
@@ -221,14 +210,14 @@ def _align_with_whisper_fallback(audio_path: Path, user_lines: list[str]) -> Lyr
     user_seq = [w for _, w in user_flat]
     whisper_seq = [w["clean"] for w in whisper_words]
 
-    # SequenceMatcher finds the longest common subsequence — handles gaps/substitutions.
+    
     matcher = difflib.SequenceMatcher(None, user_seq, whisper_seq, autojunk=False)
     word_to_whisper: dict[int, int] = {}
     for u_start, wh_start, length in matcher.get_matching_blocks():
         for i in range(length):
             word_to_whisper[u_start + i] = wh_start + i
 
-    # Interpolate whisper index for unmatched user words from nearest neighbours.
+    
     for i in range(len(user_flat)):
         if i not in word_to_whisper:
             prev = next((j for j in range(i - 1, -1, -1) if j in word_to_whisper), None)
@@ -238,7 +227,7 @@ def _align_with_whisper_fallback(audio_path: Path, user_lines: list[str]) -> Lyr
             elif nxt is not None:
                 word_to_whisper[i] = word_to_whisper[nxt]
 
-    # Build per-line timestamps from matched word indices.
+    
     lines: list[LyricLine] = []
     word_offset = 0
     for line_idx, user_line in enumerate(user_lines):
@@ -276,18 +265,66 @@ def _align_with_whisper_fallback(audio_path: Path, user_lines: list[str]) -> Lyr
     )
 
 
-def align_lyrics_text(audio_path: Path, lyrics_text: str) -> LyricsFile:
-    """Align plain-text lyrics to audio.
+import re as _re
 
-    Tries WhisperX forced alignment first (most accurate). Falls back to
-    Whisper + SequenceMatcher if WhisperX models cannot be downloaded.
-    """
-    user_lines = [ln.strip() for ln in lyrics_text.splitlines() if ln.strip()]
-    if not user_lines:
+
+def _parse_lyrics_with_speakers(raw_text: str) -> tuple[list[str], list[str | None]]:
+    
+    _HEADER_RE = _re.compile(r"^\[([^\]]+)\]\s*$")
+    _BOTH_WORDS = {"both", "all", "&"}
+
+    current_speaker: str | None = None
+    lyric_lines: list[str] = []
+    speakers: list[str | None] = []
+
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        m = _HEADER_RE.match(line)
+        if m:
+            content = m.group(1)
+            if ":" in content:
+                
+                artists_part = content.split(":", 1)[1].strip()
+               
+                artist_tokens = [
+                    a.strip()
+                    for a in _re.split(r",|&", artists_part)
+                    if a.strip()
+                ]
+                
+                if len(artist_tokens) == 1 and artist_tokens[0].lower() not in _BOTH_WORDS:
+                    current_speaker = artist_tokens[0]
+                else:
+                    
+                    current_speaker = None
+            else:
+                
+                current_speaker = None
+            continue
+
+        lyric_lines.append(line)
+        speakers.append(current_speaker)
+
+    return lyric_lines, speakers
+
+
+def align_lyrics_text(audio_path: Path, lyrics_text: str) -> LyricsFile:
+    
+    lyric_lines, speakers = _parse_lyrics_with_speakers(lyrics_text)
+    if not lyric_lines:
         raise ValueError("Lyrics text must contain at least one non-empty line.")
 
     try:
-        return _align_with_whisperx(audio_path, user_lines)
+        result = _align_with_whisperx(audio_path, lyric_lines)
     except Exception:
-        return _align_with_whisper_fallback(audio_path, user_lines)
+        result = _align_with_whisper_fallback(audio_path, lyric_lines)
+
+    
+    for line, spk in zip(result.lines, speakers):
+        line.speaker = spk
+
+    return result
 

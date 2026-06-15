@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 from backend.core.config import settings
 from backend.core.errors import AppError, WorkerUnavailableError
 from backend.models.schemas import ArtDirectRequest, JobPhase, JobState, QueueResponse
 from backend.services.job_runner import run_art_direction_job
+from backend.services.media import sanitize_filename, save_validated_upload
 from backend.services.storage import storage
 
 router = APIRouter(tags=["storyboard"])
@@ -37,7 +39,7 @@ def _queue_art_direction(
 
 
 def _validate_song_config_yaml(yaml_text: str | None) -> None:
-    """Eagerly validate the YAML in the request so we can return a 422 synchronously."""
+    
     if not yaml_text:
         return
     from backend.services.song_config import parse_song_config
@@ -51,7 +53,7 @@ async def art_direct(
 ) -> QueueResponse:
     
     try:
-        # Validate song config YAML early so we can return a 422 before queuing
+        
         try:
             _validate_song_config_yaml(request.song_config_yaml)
         except ValueError as exc:
@@ -59,7 +61,7 @@ async def art_direct(
 
         manifest = storage.read_manifest(request.job_token)
 
-        # Require that lyrics are already available
+        
         if not manifest.lyrics_path:
             raise AppError(
                 "No lyrics found for this job. "
@@ -121,6 +123,154 @@ async def list_backgrounds(job_token: str) -> dict:
             idx = int(m.group(1))
             backgrounds.append({"index": idx, "url": f"/api/jobs/{job_token}/bg/{idx}"})
     return {"backgrounds": backgrounds}
+
+
+@router.get("/jobs/{job_token}/speakers", summary="List uploaded speaker images for a job")
+async def list_speakers(job_token: str):
+    """Return { speakers: [ {name, slug, url, generated_url?, duo_generated_urls?} ] }."""
+    try:
+        storage.read_manifest(job_token)
+        job_dir = storage.job_dir(job_token)
+        speakers_dir = job_dir / "speakers"
+        result = []
+        if speakers_dir.is_dir():
+            for slug_dir in sorted(speakers_dir.iterdir()):
+                if not slug_dir.is_dir():
+                    continue
+                name_file = slug_dir / ".artist_name"
+                artist_name = name_file.read_text(encoding="utf-8").strip() if name_file.exists() else slug_dir.name
+                raw_photos = [
+                    f for f in sorted(slug_dir.iterdir())
+                    if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+                    and not f.name.startswith(".")
+                    and not f.name.startswith("generated_")
+                ]
+                if not raw_photos:
+                    continue
+                entry: dict = {
+                    "name": artist_name,
+                    "slug": slug_dir.name,
+                    "url": f"/api/jobs/{job_token}/speakers/{slug_dir.name}",
+                }
+                solo_gen = slug_dir / "generated_solo.jpg"
+                if solo_gen.exists():
+                    entry["generated_url"] = f"/api/jobs/{job_token}/speakers/{slug_dir.name}/generated"
+                result.append(entry)
+
+            # Duo images live directly in speakers_dir as duo_{a}_{b}.jpg
+            duo_map: dict[str, str] = {}
+            for duo_file in sorted(speakers_dir.glob("duo_*.jpg")):
+                duo_map[duo_file.stem] = f"/api/jobs/{job_token}/speakers/duo/{duo_file.stem}"
+            if duo_map:
+                for entry in result:
+                    entry["duo_generated_urls"] = duo_map
+
+        return {"speakers": result}
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/jobs/{job_token}/speakers/{slug}", summary="Serve the raw uploaded photo for an artist")
+async def serve_speaker_image(job_token: str, slug: str):
+    try:
+        storage.read_manifest(job_token)
+        slug_dir = storage.job_dir(job_token) / "speakers" / slug
+        images = sorted([
+            f for f in slug_dir.iterdir()
+            if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+            and not f.name.startswith(".")
+            and not f.name.startswith("generated_")
+        ])
+        if not images:
+            raise HTTPException(status_code=404, detail="No image found for this artist.")
+        return FileResponse(images[0], media_type="image/jpeg")
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/jobs/{job_token}/speakers/{slug}/generated", summary="Serve the AI-generated solo image for an artist")
+async def serve_generated_speaker_image(job_token: str, slug: str):
+    try:
+        storage.read_manifest(job_token)
+        out = storage.job_dir(job_token) / "speakers" / slug / "generated_solo.jpg"
+        if not out.exists():
+            raise HTTPException(status_code=404, detail="No generated image for this artist yet.")
+        return FileResponse(out, media_type="image/jpeg")
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.get("/jobs/{job_token}/speakers/duo/{duo_key}", summary="Serve an AI-generated duo image")
+async def serve_generated_duo_image(job_token: str, duo_key: str):
+    try:
+        storage.read_manifest(job_token)
+        # duo_key is the stem e.g. "duo_artist_a_artist_b"
+        out = storage.job_dir(job_token) / "speakers" / f"{duo_key}.jpg"
+        if not out.exists():
+            raise HTTPException(status_code=404, detail="No generated duo image found.")
+        return FileResponse(out, media_type="image/jpeg")
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+@router.post("/jobs/{job_token}/speaker-image/{artist_name}", summary="Upload a photo for a named artist")
+async def upload_speaker_image(job_token: str, artist_name: str, image: UploadFile = File(...)):
+    """Save an artist photo to job_dir/speakers/{slug}/.
+    The artist_name is slugified (lowercased, spaces→underscores) for the directory name
+    but the original name is stored in a manifest so the renderer can match it.
+    """
+    try:
+        storage.read_manifest(job_token)
+        # Slug the artist name for a safe directory name
+        slug = re.sub(r"[^a-z0-9]+", "_", artist_name.lower()).strip("_") or "artist"
+        safe_filename = sanitize_filename(image.filename, f"{slug}_photo")
+        dest = storage.job_dir(job_token) / "speakers" / slug / safe_filename
+        await save_validated_upload(
+            image,
+            dest,
+            max_bytes=settings.max_background_bytes,
+            kind="image",
+        )
+        # Write a name manifest so the renderer maps slug → original name
+        name_file = storage.job_dir(job_token) / "speakers" / slug / ".artist_name"
+        name_file.write_text(artist_name, encoding="utf-8")
+        return {"ok": True, "artist": artist_name, "path": str(dest)}
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+
+class GenerateArtistImagesRequest(BaseModel):
+    style_prompt: str
+    openai_api_key: str
+    pairs: list[list[str]] | None = None  # e.g. [["Artist A", "Artist B"]]
+
+
+@router.post("/jobs/{job_token}/generate-artist-images", summary="Generate AI images for each artist using their uploaded photos")
+async def generate_artist_images_endpoint(
+    job_token: str,
+    request: GenerateArtistImagesRequest,
+    background_tasks: BackgroundTasks,
+):
+    
+    try:
+        storage.read_manifest(job_token)
+    except AppError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    from backend.services.artist_image_gen import generate_artist_images
+
+    job_dir = storage.job_dir(job_token)
+    pairs = [tuple(p) for p in (request.pairs or []) if len(p) == 2]  # type: ignore[misc]
+
+    background_tasks.add_task(
+        generate_artist_images,
+        job_dir,
+        request.style_prompt,
+        request.openai_api_key,
+        pairs or None,
+    )
+
+    return {"ok": True, "message": "Artist image generation started."}
 
 
 @router.get("/jobs/{job_token}/bg/{index}", summary="Serve an AI-generated background image")

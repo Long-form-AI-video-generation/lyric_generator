@@ -93,6 +93,16 @@ export function downloadUrl(pathOrToken: string) {
   return `${API_BASE}/api/download/${pathOrToken}`;
 }
 
+export async function uploadSpeakerImage(jobToken: string, artistName: string, file: File) {
+  const form = new FormData();
+  form.append("image", file);
+  const response = await fetch(
+    `${API_BASE}/api/jobs/${encodeURIComponent(jobToken)}/speaker-image/${encodeURIComponent(artistName)}`,
+    { method: "POST", body: form },
+  );
+  return readJson<{ ok: boolean }>(response);
+}
+
 export async function startArtDirection(
   jobToken: string,
   stylePrompt: string,
@@ -119,6 +129,45 @@ export async function getStoryboard(jobToken: string): Promise<Storyboard> {
     cache: "no-store",
   });
   return readJson<Storyboard>(response);
+}
+
+export type SpeakerImage = {
+  name: string;
+  slug: string;
+  url: string;
+  generated_url?: string;
+  duo_generated_urls?: Record<string, string>;
+};
+
+export async function getSpeakerImages(jobToken: string): Promise<SpeakerImage[]> {
+  const response = await fetch(`${API_BASE}/api/jobs/${jobToken}/speakers`, { cache: "no-store" });
+  const payload = await readJson<{ speakers: SpeakerImage[] }>(response);
+  return payload.speakers.map(s => ({
+    ...s,
+    url: `${API_BASE}${s.url}`,
+    ...(s.generated_url ? { generated_url: `${API_BASE}${s.generated_url}` } : {}),
+    ...(s.duo_generated_urls
+      ? { duo_generated_urls: Object.fromEntries(Object.entries(s.duo_generated_urls).map(([k, v]) => [k, `${API_BASE}${v}`])) }
+      : {}),
+  }));
+}
+
+export async function generateArtistImages(
+  jobToken: string,
+  stylePrompt: string,
+  openaiApiKey: string,
+  pairs?: [string, string][],
+): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobToken)}/generate-artist-images`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      style_prompt: stylePrompt,
+      openai_api_key: openaiApiKey,
+      pairs: pairs ?? null,
+    }),
+  });
+  return readJson<{ ok: boolean; message: string }>(response);
 }
 
 export async function getAiBackgrounds(jobToken: string): Promise<AiBackground[]> {
