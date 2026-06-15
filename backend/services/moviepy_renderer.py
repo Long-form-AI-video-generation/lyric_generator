@@ -13,7 +13,6 @@ from backend.models.schemas import AnimationStyle, LineDirection, LyricsFile, St
 from backend.services.asset_pipeline import (
     composite_speaker,
     load_background_images,
-    load_speaker_images,
     prepare_background,
 )
 
@@ -286,7 +285,7 @@ def render_storyboard_video(
     *,
     audio_path: Path,
     asset_dirs: list[Path],
-    speaker_dirs: list[Path] | None = None,
+    speaker_image_map: dict[str, list[Path]] | None = None,
     lyrics: LyricsFile,
     storyboard: Storyboard,
     output_path: Path,
@@ -294,7 +293,7 @@ def render_storyboard_video(
     fps: int = 30,
     on_progress: Callable[[int], None] | None = None,
 ) -> Path:
-   
+
     from moviepy import AudioFileClip, concatenate_videoclips
 
     if resolution not in RESOLUTIONS:
@@ -304,7 +303,12 @@ def render_storyboard_video(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     background_images = load_background_images(asset_dirs)
-    speaker_images = load_speaker_images(speaker_dirs or [])
+   
+    _speaker_map: dict[str, list[Path]] = {
+        k.lower(): v for k, v in (speaker_image_map or {}).items()
+    }
+    
+    _speaker_fallback: list[Path] = [p for paths in _speaker_map.values() for p in paths]
 
     if background_images:
         fallback_bg = prepare_background(background_images[0], width, height)
@@ -342,17 +346,23 @@ def render_storyboard_video(
         else:
             bg = fallback_bg.copy()
 
-        last_bg = bg  
+        last_bg = bg
 
-       
-        if speaker_images and direction.background.speaker_opacity > 0:
-            sp_idx = direction.background.image_index % len(speaker_images)
-            bg = composite_speaker(
-                bg,
-                speaker_images[sp_idx],
-                distortion=direction.background.speaker_distortion,
-                opacity=direction.background.speaker_opacity,
-            )
+        if direction.background.speaker_opacity > 0:
+            
+            speaker_pool: list[Path] = []
+            if direction.speaker_name:
+                speaker_pool = _speaker_map.get(direction.speaker_name.lower(), [])
+            if not speaker_pool:
+                speaker_pool = _speaker_fallback
+            if speaker_pool:
+                sp_idx = direction.background.image_index % len(speaker_pool)
+                bg = composite_speaker(
+                    bg,
+                    speaker_pool[sp_idx],
+                    distortion=direction.background.speaker_distortion,
+                    opacity=direction.background.speaker_opacity,
+                )
         anim_frames_count = min(ANIM_FRAME_COUNT, max(1, int(display_dur * fps) - 1))
         builder = _ANIM_BUILDERS.get(direction.animation, _anim_fade_in)
         anim_frames = builder(bg, line.text, direction, width, height, anim_frames_count)

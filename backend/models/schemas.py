@@ -1,4 +1,3 @@
-"""Pydantic models shared by the API, workers, and services."""
 
 from __future__ import annotations
 
@@ -30,6 +29,7 @@ class LyricLine(BaseModel):
     text: str = Field(..., min_length=1, max_length=500)
     start: float = Field(..., ge=0)
     end: float = Field(..., ge=0)
+    speaker: str | None = Field(None, description="Artist/speaker name parsed from section headers")
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "LyricLine":
@@ -142,24 +142,24 @@ class JobManifest(BaseModel):
 
 
 class SpeakerStyle(BaseModel):
-    """Visual style applied to every lyric line spoken by a named speaker."""
+    
 
     font: str = "default"
     text_color: str = "#FFFFFF"
     animation: str = "fade-in"
     font_size_pct: float = Field(6.5, ge=1.0, le=20.0)
     position_y_pct: float = Field(50.0, ge=0, le=100)
+    image_dir: str | None = Field(None, description="Path to directory of photos for this artist")
 
 
 class SectionOverride(BaseModel):
-    """Additional style instructions applied to specific song sections."""
-
+   
     sections: list[str] = Field(..., description="Section names, e.g. ['chorus', 'bridge']")
     style: str = Field(..., description="Extra style instruction for these sections")
 
 
 class SongConfig(BaseModel):
-    """Full per-song art direction configuration."""
+    
 
     global_style: str = Field(
         "",
@@ -199,12 +199,17 @@ class BackgroundTreatment(BaseModel):
         description="One of: none, chromatic_aberration, pixel_sort, datamosh",
     )
     speaker_opacity: float = Field(0.0, ge=0.0, le=1.0)
+    co_speakers: list[str] = Field(
+        default_factory=list,
+        description="Names of all artists singing together on this line (2+ means composite render)",
+    )
 
 
 class LineDirection(BaseModel):
-    """Per-lyric-line visual directions produced by the art direction pass."""
+    
 
     line_id: int
+    speaker_name: str | None = Field(None, description="Artist name for this line, used to pick the correct speaker image")
     font: str = Field("default", description="Font name from the supported set")
     text_color: str = Field("#FFFFFF", description="Hex colour for the lyric text")
     font_size_pct: float = Field(
@@ -222,7 +227,7 @@ class LineDirection(BaseModel):
 
 
 class Storyboard(BaseModel):
-    """Full art direction storyboard for one song."""
+    
 
     title: str
     style_prompt: str
@@ -258,7 +263,7 @@ class ArtDirectRequest(BaseModel):
 
 
 def validation_issues(exc: ValidationError) -> ValidationIssues:
-    """Convert Pydantic's nested errors into frontend-friendly field issues."""
+    
 
     errors: list[FieldIssue] = []
     for issue in exc.errors():
@@ -274,8 +279,7 @@ def _as_mapping(value: Any, path: str) -> dict[str, Any]:
 
 
 def _coerce_legacy_lyrics(payload: Any) -> dict[str, Any]:
-    """Accept the legacy alignment array and convert it to the product schema."""
-
+    
     data = {"lines": payload} if isinstance(payload, list) else _as_mapping(payload, "lyrics")
     raw_lines = data.get("lines")
     if not isinstance(raw_lines, list):
@@ -288,14 +292,15 @@ def _coerce_legacy_lyrics(payload: Any) -> dict[str, Any]:
         line_id = item.get("id")
         if line_id is None and isinstance(item.get("line_index"), int):
             line_id = int(item["line_index"]) + 1
-        lines.append(
-            {
-                "id": line_id or index + 1,
-                "text": text,
-                "start": item.get("start"),
-                "end": item.get("end"),
-            }
-        )
+        line_dict: dict[str, Any] = {
+            "id": line_id or index + 1,
+            "text": text,
+            "start": item.get("start"),
+            "end": item.get("end"),
+        }
+        if item.get("speaker") is not None:
+            line_dict["speaker"] = item["speaker"]
+        lines.append(line_dict)
 
     duration = data.get("duration_seconds")
     if duration is None and lines:
@@ -309,6 +314,5 @@ def _coerce_legacy_lyrics(payload: Any) -> dict[str, Any]:
 
 
 def parse_lyrics_payload(payload: Any) -> LyricsFile:
-    """Validate a lyrics payload, accepting both current and legacy schemas."""
 
     return LyricsFile.model_validate(_coerce_legacy_lyrics(payload))

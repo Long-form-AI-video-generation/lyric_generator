@@ -105,11 +105,11 @@ export function LyricsStep({ onNext, onBack }: { onNext: () => void; onBack: () 
               </div>
               <h2 className="font-display text-2xl font-black tracking-normal">Paste Lyrics</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                Paste the lyrics text below one line per lyric line.
+                Paste lyrics below. Include <span className="text-zinc-300 font-medium">[Section: Artist]</span> headers for multi-artist songs — each artist gets their own style and photo.
               </p>
               <textarea
                 className="mt-4 flex-1 min-h-[160px] w-full resize-none rounded-lg border border-border bg-background p-3 text-sm leading-6 text-zinc-200 placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
-                placeholder={"Verse 1 line one\nVerse 1 line two\nChorus line..."}
+                placeholder={"[Verse 1: artist1]\nlyrics\n\n[Chorus: artist2]\nlyrics"}
                 value={lyricsText}
                 onChange={(e) => setLyricsText(e.target.value)}
                 disabled={busy}

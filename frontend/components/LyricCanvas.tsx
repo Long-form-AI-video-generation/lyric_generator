@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { AiBackground, LyricsFile, LyricLine, Storyboard, StoryboardLine } from "@/lib/types";
+import type { SpeakerImage } from "@/lib/api";
 
 type LyricCanvasProps = {
   lyrics: LyricsFile | null;
@@ -13,6 +14,7 @@ type LyricCanvasProps = {
   playing: boolean;
   storyboard?: Storyboard | null;
   aiBackgrounds?: AiBackground[];
+  speakerImages?: SpeakerImage[];
 };
 
 const FONT_MAP: Record<string, string> = {
@@ -122,6 +124,309 @@ function computeAnimState(
   }
 }
 
+
+function genreWarpProfile(stylePrompt: string): { amp: number; freq: number; speed: number } {
+  const s = stylePrompt.toLowerCase();
+  if (/metal|hardcore|death|thrash|grind/.test(s))
+    return { amp: 0.055, freq: 7, speed: 6 };
+  if (/rock|punk|grunge|alternative|alt-rock/.test(s))
+    return { amp: 0.038, freq: 5, speed: 4 };
+  if (/electronic|edm|dubstep|drum.?and.?bass|dnb|techno|industrial/.test(s))
+    return { amp: 0.032, freq: 9, speed: 8 };
+  if (/hip.?hop|trap|rap|drill/.test(s))
+    return { amp: 0.022, freq: 4, speed: 3 };
+  if (/jazz|blues|soul|r.?b/.test(s))
+    return { amp: 0.014, freq: 2, speed: 1.5 };
+  if (/pop|dance|disco|funk/.test(s))
+    return { amp: 0.018, freq: 3, speed: 2.5 };
+  if (/classical|orchestral|ambient|acoustic/.test(s))
+    return { amp: 0.008, freq: 1.5, speed: 1 };
+  // default — gentle pulse
+  return { amp: 0.018, freq: 3, speed: 2 };
+}
+
+
+function drawWarpedSpeaker(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  width: number,
+  height: number,
+  opacity: number,
+  cssFilter: string,
+  time: number,
+  profile: { amp: number; freq: number; speed: number },
+) {
+  const slices = Math.ceil(height / 3); // ~3px rows
+  const rowH = height / slices;
+  const maxShift = width * profile.amp;
+
+  ctx.globalAlpha = opacity;
+  ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+
+  for (let i = 0; i < slices; i++) {
+    const y = i * rowH;
+    
+    const shift =
+      Math.sin(i / slices * Math.PI * profile.freq + time * profile.speed) * maxShift +
+      Math.sin(i / slices * Math.PI * profile.freq * 2.3 + time * profile.speed * 1.7) * maxShift * 0.3;
+
+    const scale = Math.max(width / img.width, height / img.height);
+    const dw = img.width  * scale;
+    const dh = img.height * scale;
+    const dx = (width  - dw) / 2;
+    const dy = (height - dh) / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, y, width, rowH + 1); 
+    ctx.clip();
+    ctx.drawImage(img, dx + shift, dy, dw, dh);
+    ctx.restore();
+  }
+
+  ctx.filter = "none";
+}
+
+function drawSpeakerImage(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  width: number,
+  height: number,
+  opacity: number,
+  distortion: string,
+  bgFilter: string,
+  time: number,
+  stylePrompt: string,
+) {
+  const scale = Math.max(width / img.width, height / img.height);
+  const dw = img.width  * scale;
+  const dh = img.height * scale;
+  const dx = (width  - dw) / 2;
+  const dy = (height - dh) / 2;
+
+  
+  const cssFilter = BG_FILTERS[bgFilter] ?? "none";
+  const warpProfile = genreWarpProfile(stylePrompt);
+
+  ctx.save();
+
+  if (distortion === "chromatic_aberration") {
+    const shift = Math.round(width * 0.012 + Math.sin(time * warpProfile.speed) * width * (0.005 + warpProfile.amp * 0.3));
+    
+    ctx.globalAlpha = opacity;
+    ctx.filter = cssFilter !== "none" ? `${cssFilter} saturate(2)` : "saturate(2)";
+    ctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(img, dx - shift, dy, dw, dh);
+    
+    ctx.globalAlpha = opacity * 0.7;
+    ctx.globalCompositeOperation = "screen";
+    ctx.filter = cssFilter !== "none" ? `${cssFilter} hue-rotate(180deg) saturate(2)` : "hue-rotate(180deg) saturate(2)";
+    ctx.drawImage(img, dx + shift, dy, dw, dh);
+    
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = opacity * 0.6;
+    ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+    ctx.drawImage(img, dx, dy, dw, dh);
+
+  } else if (distortion === "pixel_sort") {
+    const slices = 12;
+    const sliceW = Math.ceil(width / slices);
+    const amp = height * 0.07;
+    ctx.globalAlpha = opacity;
+    ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+    for (let i = 0; i < slices; i++) {
+      const sx = i * sliceW;
+      
+      const offsetY = Math.sin((i / slices) * Math.PI * 3 + time * warpProfile.speed * 0.5) * amp * (i % 3 === 0 ? 1.5 : 0.5);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(sx, 0, sliceW, height);
+      ctx.clip();
+      ctx.drawImage(img, dx, dy + offsetY, dw, dh);
+      ctx.restore();
+    }
+
+  } else if (distortion === "datamosh") {
+   
+    ctx.globalAlpha = opacity;
+    ctx.filter = cssFilter !== "none" ? `${cssFilter} blur(2px) brightness(1.15)` : "blur(2px) brightness(1.15)";
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.filter = "none";
+    
+    const seed = Math.floor(time * warpProfile.speed * 0.5) % 9;
+    const blockW = Math.ceil(width  * 0.12);
+    const blockH = Math.ceil(height * 0.10);
+    for (let bi = 0; bi < 6; bi++) {
+      const bx = ((seed * 37 + bi * 19) % 9) / 9 * (width  - blockW);
+      const by = ((seed * 17 + bi * 31) % 9) / 9 * (height - blockH);
+      const offX = Math.sin(time + bi) * width  * 0.04;
+      const offY = Math.cos(time + bi) * height * 0.03;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(bx, by, blockW, blockH);
+      ctx.clip();
+      ctx.globalAlpha = opacity * 0.55;
+      ctx.drawImage(img, dx + offX, dy + offY, dw, dh);
+      ctx.restore();
+    }
+
+  } else {
+    
+    const profile = genreWarpProfile(stylePrompt);
+    drawWarpedSpeaker(ctx, img, width, height, opacity, cssFilter, time, profile);
+  }
+
+  ctx.restore();
+}
+
+
+function drawCoSpeakerComposite(
+  ctx: CanvasRenderingContext2D,
+  images: HTMLImageElement[],
+  width: number,
+  height: number,
+  opacity: number,
+  cssFilter: string,
+  time: number,
+  stylePrompt: string,
+) {
+  if (images.length === 0) return;
+  if (images.length === 1) {
+    const profile = genreWarpProfile(stylePrompt);
+    ctx.save();
+    drawWarpedSpeaker(ctx, images[0], width, height, opacity, cssFilter, time, profile);
+    ctx.restore();
+    return;
+  }
+
+  const profile = genreWarpProfile(stylePrompt);
+  const n = Math.min(images.length, 4);
+
+  ctx.save();
+
+  if (n === 2) {
+    
+    const splitX = width / 2;
+    const feather = width * 0.08;
+
+    for (let i = 0; i < 2; i++) {
+      const img = images[i];
+      const scale = Math.max(width / img.width, height / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const dx = (width - dw) / 2;
+      const dy = (height - dh) / 2;
+
+      
+      const slices = Math.ceil(height / 3);
+      const rowH = height / slices;
+      const maxShift = width * profile.amp;
+
+      ctx.globalAlpha = opacity;
+      ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+
+      for (let s = 0; s < slices; s++) {
+        const y = s * rowH;
+        const shift =
+          Math.sin(s / slices * Math.PI * profile.freq + time * profile.speed + i * Math.PI) * maxShift * 0.6;
+
+        
+        ctx.save();
+        const grad = ctx.createLinearGradient(splitX - feather, 0, splitX + feather, 0);
+        if (i === 0) {
+          grad.addColorStop(0, "rgba(0,0,0,1)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+        } else {
+          grad.addColorStop(0, "rgba(0,0,0,0)");
+          grad.addColorStop(1, "rgba(0,0,0,1)");
+        }
+
+        
+        ctx.beginPath();
+        if (i === 0) {
+          ctx.rect(0, y, splitX + feather, rowH + 1);
+        } else {
+          ctx.rect(splitX - feather, y, width - (splitX - feather), rowH + 1);
+        }
+        ctx.clip();
+        ctx.drawImage(img, dx + shift, dy, dw, dh);
+
+        
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.fillStyle = grad;
+        ctx.fillRect(splitX - feather, y, feather * 2, rowH + 1);
+        ctx.restore();
+      }
+    }
+
+    
+    ctx.globalAlpha = opacity * 0.6;
+    ctx.filter = "none";
+    ctx.globalCompositeOperation = "screen";
+    const seam = ctx.createLinearGradient(splitX - 2, 0, splitX + 2, 0);
+    seam.addColorStop(0, "rgba(255,255,255,0)");
+    seam.addColorStop(0.5, "rgba(255,255,255,0.8)");
+    seam.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = seam;
+    ctx.fillRect(splitX - 2, 0, 4, height);
+
+  } else {
+   
+    const cols = n <= 2 ? 2 : 2;
+    const rows = Math.ceil(n / cols);
+    const tileW = width  / cols;
+    const tileH = height / rows;
+
+    for (let i = 0; i < n; i++) {
+      const img = images[i];
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const tx = col * tileW;
+      const ty = row * tileH;
+
+      const scale = Math.max(tileW / img.width, tileH / img.height);
+      const dw = img.width  * scale;
+      const dh = img.height * scale;
+      const ddx = tx + (tileW - dw) / 2;
+      const ddy = ty + (tileH - dh) / 2;
+
+      const slices = Math.ceil(tileH / 3);
+      const rowH2 = tileH / slices;
+      const maxShift = tileW * profile.amp;
+
+      ctx.globalAlpha = opacity;
+      ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+
+      for (let s = 0; s < slices; s++) {
+        const y2 = ty + s * rowH2;
+        const shift =
+          Math.sin(s / slices * Math.PI * profile.freq + time * profile.speed + i * 1.3) * maxShift;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(tx, y2, tileW, rowH2 + 1);
+        ctx.clip();
+        ctx.drawImage(img, ddx + shift, ddy, dw, dh);
+        ctx.restore();
+      }
+    }
+
+    
+    ctx.globalAlpha = opacity * 0.4;
+    ctx.filter = "none";
+    ctx.globalCompositeOperation = "screen";
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tileW, 0); ctx.lineTo(tileW, height);
+    if (rows > 1) { ctx.moveTo(0, tileH); ctx.lineTo(width, tileH); }
+    ctx.stroke();
+  }
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.filter = "none";
+  ctx.restore();
+}
+
 function drawBackground(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement | null,
@@ -222,11 +527,13 @@ export function LyricCanvas({
   playing,
   storyboard,
   aiBackgrounds = [],
+  speakerImages = [],
 }: LyricCanvasProps) {
-  const canvasRef      = useRef<HTMLCanvasElement | null>(null);
-  const imageRef       = useRef<HTMLImageElement | null>(null);              // preset/upload bg
-  const aiImagesRef    = useRef<Map<number, HTMLImageElement>>(new Map());  // index → ai image
-  const lastAiBgIdxRef = useRef<number>(0);                                 // last-seen ai bg index
+  const canvasRef         = useRef<HTMLCanvasElement | null>(null);
+  const imageRef          = useRef<HTMLImageElement | null>(null);              // preset/upload bg
+  const aiImagesRef       = useRef<Map<number, HTMLImageElement>>(new Map());  // index → ai image
+  const lastAiBgIdxRef    = useRef<number>(0);                                 // last-seen ai bg index
+  const speakerImagesRef  = useRef<Map<string, HTMLImageElement>>(new Map()); // artist name / duo key → image
 
   // Build direction lookup
   const directionMap = useRef<Map<number, StoryboardLine>>(new Map());
@@ -281,6 +588,37 @@ export function LyricCanvas({
     };
   }, [aiBackgrounds]);
 
+  
+  useEffect(() => {
+    const map = new Map<string, HTMLImageElement>();
+    const cleanup: Array<() => void> = [];
+
+    const loadImg = (key: string, src: string) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => { map.set(key, img); };
+      img.src = src;
+      cleanup.push(() => { img.onload = null; });
+    };
+
+    for (const sp of speakerImages) {
+      // Solo: prefer AI-generated image if available
+      loadImg(sp.name.toLowerCase(), sp.generated_url ?? sp.url);
+
+      // Duo images keyed by duo_key stem
+      if (sp.duo_generated_urls) {
+        for (const [duoKey, duoUrl] of Object.entries(sp.duo_generated_urls)) {
+          if (!map.has(duoKey)) {
+            loadImg(duoKey, duoUrl);
+          }
+        }
+      }
+    }
+
+    speakerImagesRef.current = map;
+    return () => cleanup.forEach(fn => fn());
+  }, [speakerImages]);
+
   // Render loop
   useEffect(() => {
     let frame = 0;
@@ -321,6 +659,54 @@ export function LyricCanvas({
 
       drawBackground(ctx, bgImage, width, height, bgFilter, aiMap.size === 0 && isCustomBackground);
 
+     
+      if (direction) {
+        const opacity = direction.background.speaker_opacity ?? 0;
+        const cssFilter = BG_FILTERS[direction.background.filter ?? "none"] ?? "none";
+        const coSpeakers = direction.background.co_speakers ?? [];
+
+        if (coSpeakers.length >= 2 && opacity > 0) {
+          
+          const sortedNames = [...coSpeakers].sort();
+          const duoKey = `duo_${sortedNames.map(n => n.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")).join("_")}`;
+          const duoImg = speakerImagesRef.current.get(duoKey);
+
+          if (duoImg) {
+            
+            ctx.save();
+            ctx.globalAlpha = opacity;
+            ctx.filter = cssFilter !== "none" ? cssFilter : "none";
+            const sc = Math.max(width / duoImg.width, height / duoImg.height);
+            const dw = duoImg.width * sc, dh = duoImg.height * sc;
+            ctx.drawImage(duoImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
+            ctx.filter = "none";
+            ctx.restore();
+          } else {
+            
+            const imgs = coSpeakers
+              .map(n => speakerImagesRef.current.get(n.toLowerCase()))
+              .filter((img): img is HTMLImageElement => !!img);
+            if (imgs.length >= 2) {
+              drawCoSpeakerComposite(ctx, imgs, width, height, opacity, cssFilter, time, storyboard?.style_prompt ?? "");
+            } else if (imgs.length === 1) {
+              drawSpeakerImage(ctx, imgs[0], width, height, opacity,
+                direction.background.speaker_distortion ?? "none",
+                direction.background.filter ?? "none", time,
+                storyboard?.style_prompt ?? "");
+            }
+          }
+        } else if (direction.speaker_name && opacity > 0) {
+          
+          const speakerImg = speakerImagesRef.current.get(direction.speaker_name.toLowerCase());
+          if (speakerImg) {
+            drawSpeakerImage(ctx, speakerImg, width, height, opacity,
+              direction.background.speaker_distortion ?? "none",
+              direction.background.filter ?? "none", time,
+              storyboard?.style_prompt ?? "");
+          }
+        }
+      }
+
       // Dark overlay
       ctx.fillStyle = "rgba(0,0,0,0.22)";
       ctx.fillRect(0, 0, width, height);
@@ -340,7 +726,7 @@ export function LyricCanvas({
 
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [audioRef, currentTime, lyrics, playing, backgroundUrl, isCustomBackground, aiBackgrounds]);
+  }, [audioRef, currentTime, lyrics, playing, backgroundUrl, isCustomBackground, aiBackgrounds, speakerImages]);
 
   return (
     <canvas

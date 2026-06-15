@@ -6,13 +6,13 @@ import {
   Users, X, ImageIcon,
 } from "lucide-react";
 import { useState } from "react";
-import { getStoryboard, startArtDirection } from "@/lib/api";
+import { getStoryboard, startArtDirection, uploadSpeakerImage } from "@/lib/api";
 import { pollJobStatus } from "@/lib/jobs";
 import type { SectionRule, SongConfigForm, SpeakerConfig, StoryboardLine } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatusBanner } from "@/components/ui/StatusBanner";
-import { useAppStore } from "@/store/useAppStore";
+import { emptySpeaker, useAppStore } from "@/store/useAppStore";
 
 const STYLE_PRESETS = [
   "Dark cinematic, deep shadows, dramatic text",
@@ -63,16 +63,21 @@ const ANIMATION_COLORS: Record<string, string> = {
 function formToYaml(form: SongConfigForm): string | undefined {
   const validSpeakers = form.speakers.filter(s => s.name.trim());
   const validRules    = form.section_rules.filter(r => r.sections.length > 0 && r.style.trim());
-  const hasContent    = validSpeakers.length > 0 || validRules.length > 0 || form.generate_ai_backgrounds;
+  const hasContent    = form.global_style.trim() || validSpeakers.length > 0 || validRules.length > 0 || form.generate_ai_backgrounds;
   if (!hasContent) return undefined;
 
   const lines: string[] = [];
 
+  if (form.global_style.trim()) {
+    lines.push(`global_style: ${JSON.stringify(form.global_style.trim())}`);
+    lines.push("");
+  }
+
   if (validSpeakers.length > 0) {
     lines.push("speakers:");
     for (const sp of validSpeakers) {
-      // YAML keys must be safe identifiers
-      const key = sp.name.trim().replace(/[^a-zA-Z0-9_]/g, "_");
+     
+      const key = JSON.stringify(sp.name.trim());
       lines.push(`  ${key}:`);
       lines.push(`    font: ${sp.font}`);
       lines.push(`    text_color: "${sp.text_color}"`);
@@ -240,6 +245,43 @@ function SpeakerCard({
           />
         </div>
       </div>
+
+      
+      <div className="flex flex-col gap-1">
+        <span className="text-[11px] text-muted">Artist photo (optional — composited behind lyrics)</span>
+        <label className={`flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-border bg-zinc-800 px-3 py-2 text-xs text-muted hover:border-zinc-500 hover:text-text transition ${disabled ? "opacity-50 pointer-events-none" : ""}`}>
+          {speaker.image_preview ? (
+            <>
+              <img src={speaker.image_preview} alt="preview" className="h-8 w-8 rounded object-cover shrink-0" />
+              <span className="truncate text-zinc-300">{speaker.image_file?.name}</span>
+              <button
+                type="button"
+                onClick={e => { e.preventDefault(); onChange({ ...speaker, image_file: null, image_preview: "" }); }}
+                className="ml-auto shrink-0 text-zinc-500 hover:text-red-400"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <ImageIcon className="h-4 w-4 shrink-0" />
+              <span>Upload photo…</span>
+            </>
+          )}
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="sr-only"
+            disabled={disabled}
+            onChange={e => {
+              const file = e.target.files?.[0] ?? null;
+              if (!file) return;
+              const preview = URL.createObjectURL(file);
+              onChange({ ...speaker, image_file: file, image_preview: preview });
+            }}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -328,21 +370,7 @@ function CustomisePanel({
   const [open, setOpen] = useState(false);
 
   function addSpeaker() {
-    onChange({
-      ...form,
-      speakers: [
-        ...form.speakers,
-        {
-          id: crypto.randomUUID(),
-          name: "",
-          font: "default",
-          text_color: "#FFFFFF",
-          animation: "fade-in",
-          font_size_pct: 7,
-          position_y_pct: 55,
-        },
-      ],
-    });
+    onChange({ ...form, speakers: [...form.speakers, emptySpeaker()] });
   }
 
   function addRule() {
@@ -356,6 +384,7 @@ function CustomisePanel({
   }
 
   const hasConfig =
+    !!form.global_style.trim() ||
     form.speakers.some(s => s.name.trim()) ||
     form.section_rules.some(r => r.sections.length > 0 && r.style.trim()) ||
     form.generate_ai_backgrounds;
@@ -387,6 +416,27 @@ function CustomisePanel({
         <div className="border-t border-border divide-y divide-border">
 
           
+          <div className="flex flex-col gap-2 px-4 py-4">
+            <div className="flex gap-3">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
+              <div>
+                <p className="text-sm font-medium">Global Style Prompt</p>
+                <p className="mt-0.5 text-xs text-muted">
+                  Detailed creative brief that overrides the style field above. Describe aesthetic, per-artist looks, typography rules, and mood in plain language.
+                </p>
+              </div>
+            </div>
+            <textarea
+              className="w-full resize-none rounded-lg border border-border bg-zinc-800 px-2.5 py-2 text-sm text-text placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/50"
+              rows={4}
+              placeholder={`e.g. Dark cyberpunk aesthetic. When Ben speaks, use monospace fonts with green terminal colors. When Desi sings, use flowing serif fonts with purple/gold tones. Backgrounds should alternate between distorted photos and abstract generative patterns.`}
+              value={form.global_style}
+              onChange={e => onChange({ ...form, global_style: e.target.value })}
+              disabled={disabled}
+            />
+          </div>
+
+
           <div className="flex items-start justify-between gap-4 px-4 py-4">
             <div className="flex gap-3">
               <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-violet-400" />
@@ -614,6 +664,13 @@ export function ArtDirectStep({ onNext, onBack }: { onNext: () => void; onBack: 
       const bgB64 = background?.previewUrl
         ? await imageUrlToB64(background.previewUrl)
         : undefined;
+
+     
+      await Promise.all(
+        songConfig.speakers
+          .filter(sp => sp.name.trim() && sp.image_file)
+          .map(sp => uploadSpeakerImage(upload.jobToken, sp.name.trim(), sp.image_file!))
+      );
 
       await startArtDirection(
         upload.jobToken,

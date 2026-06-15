@@ -13,7 +13,20 @@ type UploadState = {
   jobToken: string;
 };
 
+export const emptySpeaker = () => ({
+  id: crypto.randomUUID(),
+  name: "",
+  font: "default",
+  text_color: "#FFFFFF",
+  animation: "fade-in",
+  font_size_pct: 7,
+  position_y_pct: 55,
+  image_file: null as File | null,
+  image_preview: "",
+});
+
 const defaultSongConfig: SongConfigForm = {
+  global_style: "",
   speakers: [],
   section_rules: [],
   generate_ai_backgrounds: false,
@@ -85,7 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       background: null,
       storyboard: null,
       stylePrompt: "",
-      songConfig: defaultSongConfig,
+      songConfig: { ...defaultSongConfig },
       exportStatus: null,
       error: ""
     });
