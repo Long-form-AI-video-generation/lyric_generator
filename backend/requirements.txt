@@ -21,8 +21,12 @@ PyYAML>=6.0
 
 
 opencv-python-headless>=4.9.0
-glitch-this>=1.1.0
+glitch-this>=1.0.0
 
 
-moviepy>=2.0.0
+moviepy>=2.0.0 
 
+# Database
+sqlalchemy>=2.0.30
+alembic>=1.13.1
+psycopg2-binary>=2.9.9
