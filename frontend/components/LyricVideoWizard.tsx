@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { RotateCcw } from "lucide-react";
 import { UploadStep } from "@/components/steps/UploadStep";
@@ -11,11 +13,30 @@ import { PreviewStep } from "@/components/steps/PreviewStep";
 import { Button } from "@/components/ui/Button";
 import { StatusBanner } from "@/components/ui/StatusBanner";
 import { useAppStore } from "@/store/useAppStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { getProfileApi } from "@/lib/api";
+import { Sidebar } from "@/components/Sidebar";
 
 const steps = ["Upload", "Lyrics", "Background", "API Key", "Art Direction", "Preview"];
 
 export function LyricVideoWizard() {
+  const router = useRouter();
+  const { user, isAuthenticated, logout, setUser } = useAuthStore();
   const { step, setStep, reset, upload, lyrics, background, error } = useAppStore();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push("/login");
+    } else {
+      getProfileApi()
+        .then(setUser)
+        .catch(() => {
+          logout();
+          router.push("/login");
+        });
+    }
+  }, [isAuthenticated, router, logout, setUser]);
 
   const canContinue =
     (step === 0 && Boolean(upload.jobToken)) ||
@@ -32,16 +53,32 @@ export function LyricVideoWizard() {
     if (step > 0) setStep((step - 1) as 0 | 1 | 2 | 3 | 4 | 5);
   }
 
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-sm text-text-muted">
+        Checking authentication...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
         <div className="grid min-h-16 grid-cols-[1fr_auto] items-center gap-4 px-4 md:grid-cols-[1fr_2fr_1fr] md:px-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg border border-violet-500/40 bg-violet-500/15 font-display text-sm font-black text-white">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            className="flex items-center gap-3 text-left hover:opacity-85 transition cursor-pointer group"
+            title="Open workspace menu"
+          >
+            <div className="grid h-9 w-9 place-items-center rounded-lg border border-violet-500/40 bg-violet-500/15 font-display text-sm font-black text-white group-hover:border-violet-400 group-hover:shadow-[0_0_12px_rgba(139,92,246,0.3)] transition">
               LV
             </div>
-            <div className="font-display text-lg font-black tracking-normal">LyricVid</div>
-          </div>
+            <div>
+              <div className="font-display text-lg font-black tracking-normal leading-tight">LyricVid</div>
+              <div className="text-[10px] text-zinc-400 group-hover:text-violet-400 transition">Workspace Menu</div>
+            </div>
+          </button>
           <nav aria-label="Wizard progress" className="hidden items-center gap-2 md:flex">
             {steps.map((label, index) => (
               <div key={label} className="flex flex-1 items-center gap-2">
@@ -50,7 +87,12 @@ export function LyricVideoWizard() {
               </div>
             ))}
           </nav>
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {user && (
+              <span className="inline-flex items-center rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary border border-primary/30">
+                ⚡ {user.credits_remaining} credits
+              </span>
+            )}
             <Button variant="ghost" onClick={reset}>
               <RotateCcw className="h-4 w-4" aria-hidden />
               <span className="hidden sm:inline">Start Over</span>
@@ -89,6 +131,8 @@ export function LyricVideoWizard() {
           </motion.section>
         </AnimatePresence>
       </main>
+
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
     </div>
   );
 }

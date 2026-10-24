@@ -65,6 +65,7 @@ class JobStorage:
         original_filename: str,
         audio_path: Path,
         duration_seconds: float,
+        user_id: str | None = None,
     ) -> JobManifest:
         self.ensure_root()
         job_dir = self.job_dir(token)
@@ -72,6 +73,7 @@ class JobStorage:
         now = time.time()
         manifest = JobManifest(
             job_token=token,
+            user_id=str(user_id) if user_id else None,
             original_filename=original_filename,
             safe_filename=sanitize_filename(original_filename, "song"),
             audio_path=str(audio_path),

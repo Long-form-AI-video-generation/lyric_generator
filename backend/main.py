@@ -1,4 +1,4 @@
-"""FastAPI application entry point."""
+"""FastAPI application entry point. Loaded with SMTP and Resend email dispatch."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.core.config import settings
 from backend.core.errors import AppError
-from backend.routers import export, presets, storyboard, transcribe, upload
+from backend.routers import admin, auth, export, presets, storyboard, transcribe, upload
 from backend.services.cleanup import run_periodic_cleanup
 from backend.services.presets import preset_service
 from backend.services.storage import storage
@@ -80,6 +80,8 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(admin.router, prefix=settings.api_prefix)
 app.include_router(upload.router, prefix=settings.api_prefix)
 app.include_router(transcribe.router, prefix=settings.api_prefix)
 app.include_router(storyboard.router, prefix=settings.api_prefix)

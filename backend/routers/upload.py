@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from backend.core.auth import get_current_user
 from backend.core.config import settings
 from backend.core.errors import AppError
 from backend.models.schemas import UploadResponse
+from backend.models.user import User
 from backend.services.media import probe_audio_duration, sanitize_filename, save_validated_upload
 from backend.services.storage import storage
 
@@ -14,7 +16,10 @@ router = APIRouter(tags=["upload"])
 
 
 @router.post("/upload", response_model=UploadResponse)
-async def upload_audio(audio: UploadFile = File(...)) -> UploadResponse:
+async def upload_audio(
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> UploadResponse:
     token, job_dir = storage.reserve_job()
     safe_name = sanitize_filename(audio.filename, "song")
     try:
@@ -30,6 +35,7 @@ async def upload_audio(audio: UploadFile = File(...)) -> UploadResponse:
             original_filename=audio.filename or safe_name,
             audio_path=audio_path,
             duration_seconds=duration,
+            user_id=str(current_user.id),
         )
         return UploadResponse(
             job_token=manifest.job_token,

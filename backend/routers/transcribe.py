@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from backend.core.auth import get_current_user
 from backend.core.config import settings
+from backend.core.database import get_db
 from backend.core.errors import AppError, WorkerUnavailableError
+from backend.core.permissions import check_and_consume_quota, verify_job_owner
 from backend.models.schemas import AlignRequest, JobPhase, JobState, LyricsFile, QueueResponse, StatusResponse, TranscribeRequest
+from backend.models.user import User
 from backend.services.job_runner import run_alignment_job, run_transcription_job
 from backend.services.storage import storage
 from backend.services.transcription_state import transcription_response_for_manifest
@@ -30,12 +35,19 @@ def _queue_transcription(job_token: str, background_tasks: BackgroundTasks) -> N
 async def transcribe(
     request: TranscribeRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> QueueResponse:
     try:
         manifest = storage.read_manifest(request.job_token)
+        verify_job_owner(manifest, current_user)
+
         existing_response = transcription_response_for_manifest(manifest)
         if existing_response is not None:
             return existing_response
+
+        # Deduct 1 credit for new transcription run
+        check_and_consume_quota(current_user, db, cost=1)
 
         storage.update(
             request.job_token,
@@ -55,9 +67,12 @@ async def transcribe(
 async def align(
     request: AlignRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
 ) -> QueueResponse:
     try:
-        storage.read_manifest(request.job_token)
+        manifest = storage.read_manifest(request.job_token)
+        verify_job_owner(manifest, current_user)
+
         storage.update(
             request.job_token,
             status=JobState.queued,

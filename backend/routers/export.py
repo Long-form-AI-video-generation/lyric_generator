@@ -5,14 +5,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from backend.core.auth import get_current_user
 from backend.core.config import settings
+from backend.core.database import get_db
 from backend.core.errors import AppError, ValidationAppError, WorkerUnavailableError
+from backend.core.permissions import check_and_consume_quota, verify_job_owner
 from backend.models.schemas import ExportSettings, JobPhase, JobState, QueueResponse, parse_lyrics_payload, validation_issues
+from backend.models.user import User
 from backend.services.job_runner import run_export_job
 from backend.services.media import sanitize_filename, save_validated_upload
 from backend.services.presets import preset_service
@@ -42,9 +47,13 @@ async def export_video(
     resolution: str = Form(default="1080p"),
     fps: int = Form(default=30),
     background: UploadFile | None = File(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> QueueResponse:
     try:
-        storage.read_manifest(job_token)
+        manifest = storage.read_manifest(job_token)
+        verify_job_owner(manifest, current_user)
+        check_and_consume_quota(current_user, db, cost=1)
         try:
             lyrics_payload = json.loads(lyrics)
             lyrics_model = parse_lyrics_payload(lyrics_payload)
