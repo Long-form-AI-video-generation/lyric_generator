@@ -65,6 +65,8 @@ class JobStorage:
         original_filename: str,
         audio_path: Path,
         duration_seconds: float,
+        user_id: str | None = None,
+        project_id: str | None = None,
     ) -> JobManifest:
         self.ensure_root()
         job_dir = self.job_dir(token)
@@ -72,6 +74,8 @@ class JobStorage:
         now = time.time()
         manifest = JobManifest(
             job_token=token,
+            user_id=str(user_id) if user_id else None,
+            project_id=str(project_id) if project_id else None,
             original_filename=original_filename,
             safe_filename=sanitize_filename(original_filename, "song"),
             audio_path=str(audio_path),
@@ -110,6 +114,7 @@ class JobStorage:
         debug_log: str | None = None,
         result_path: str | None = None,
         lyrics_path: str | None = None,
+        project_id: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> JobManifest:
         manifest = self.read_manifest(token)
@@ -127,6 +132,8 @@ class JobStorage:
             manifest.result_path = result_path
         if lyrics_path is not None:
             manifest.lyrics_path = lyrics_path
+        if project_id is not None:
+            manifest.project_id = project_id
         if extra:
             payload = manifest.model_dump()
             payload.update(extra)

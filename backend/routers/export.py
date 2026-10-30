@@ -1,21 +1,27 @@
-"""MP4 export and download endpoints."""
+"""Export, download, and render status endpoints."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from backend.core.auth import get_current_user
 from backend.core.config import settings
+from backend.core.database import get_db
 from backend.core.errors import AppError, ValidationAppError, WorkerUnavailableError
+from backend.core.permissions import check_and_consume_quota, verify_job_owner
 from backend.models.schemas import ExportSettings, JobPhase, JobState, QueueResponse, parse_lyrics_payload, validation_issues
+from backend.models.user import User
 from backend.services.job_runner import run_export_job
 from backend.services.media import sanitize_filename, save_validated_upload
 from backend.services.presets import preset_service
+from backend.services.project_service import create_video_job
 from backend.services.storage import storage
 
 router = APIRouter(tags=["export"])
@@ -29,7 +35,7 @@ def _queue_export(job_token: str, background_tasks: BackgroundTasks) -> None:
             export_job.delay(job_token)
             return
         except Exception as exc:
-            raise WorkerUnavailableError("Could not queue export. Is Redis running?") from exc
+            raise WorkerUnavailableError("Could not queue the export job. Is Redis running?") from exc
     background_tasks.add_task(run_export_job, job_token)
 
 
@@ -42,9 +48,17 @@ async def export_video(
     resolution: str = Form(default="1080p"),
     fps: int = Form(default=30),
     background: UploadFile | None = File(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> QueueResponse:
     try:
-        storage.read_manifest(job_token)
+        manifest = storage.read_manifest(job_token)
+        verify_job_owner(manifest, current_user)
+        check_and_consume_quota(current_user, db, cost=1)
+
+        if manifest.project_id:
+            create_video_job(db, manifest.project_id, current_user, job_type="final_export", credits_cost=1)
+
         try:
             lyrics_payload = json.loads(lyrics)
             lyrics_model = parse_lyrics_payload(lyrics_payload)

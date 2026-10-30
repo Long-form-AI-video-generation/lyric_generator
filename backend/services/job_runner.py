@@ -1,4 +1,4 @@
-
+"""Background job runner for transcription, alignment, and rendering."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from backend.services.whisper_service import align_lyrics_text, transcribe_audio
 
 
 def _asset_dirs() -> list[Path]:
-   
     raw = settings.asset_dirs_raw.strip()
     if not raw:
         return []
@@ -24,12 +23,10 @@ def _asset_dirs() -> list[Path]:
 
 
 def _speaker_image_map(job_token: str, extra_name_dirs: dict[str, str] | None = None) -> dict[str, list[Path]]:
-    
     from backend.services.asset_pipeline import load_background_images
 
     result: dict[str, list[Path]] = {}
 
-    
     speakers_dir = storage.job_dir(job_token) / "speakers"
     if speakers_dir.is_dir():
         for slug_dir in sorted(speakers_dir.iterdir()):
@@ -42,14 +39,12 @@ def _speaker_image_map(job_token: str, extra_name_dirs: dict[str, str] | None = 
             if images:
                 result.setdefault(artist_name.lower(), []).extend(images)
 
-    
     if extra_name_dirs:
         for name, path_str in extra_name_dirs.items():
             images = load_background_images([Path(path_str)])
             if images:
                 result.setdefault(name.lower(), []).extend(images)
 
-    
     raw = settings.speaker_dirs_raw.strip()
     if raw:
         for token in raw.split(","):
@@ -73,7 +68,6 @@ def _public_error(message: str) -> str:
 
 
 def run_transcription_job(job_token: str) -> None:
-
     try:
         manifest = storage.update(
             job_token,
@@ -83,16 +77,31 @@ def run_transcription_job(job_token: str) -> None:
             error="",
             debug_log="",
         )
-        
         storage.update(job_token, progress_pct=15)
         lyrics = transcribe_audio(Path(manifest.audio_path))
-        
         storage.update(job_token, progress_pct=90)
         lyrics_path = storage.write_json(
             job_token,
             "lyrics.json",
             lyrics.model_dump(mode="json"),
         )
+
+        if manifest.project_id:
+            try:
+                from backend.core.database import SessionLocal
+                from backend.services.project_service import save_project_lyrics
+                with SessionLocal() as db:
+                    save_project_lyrics(
+                        db,
+                        manifest.project_id,
+                        manifest.user_id,
+                        raw_text="\n".join(line.text for line in lyrics.lines),
+                        timing_data=[line.model_dump() for line in lyrics.lines],
+                        source="whisper",
+                    )
+            except Exception as db_exc:
+                print(f"[job_runner] Failed to persist lyrics to DB: {db_exc}")
+
         storage.update(
             job_token,
             status=JobState.complete,
@@ -114,7 +123,6 @@ def run_transcription_job(job_token: str) -> None:
 
 
 def run_alignment_job(job_token: str, lyrics_text: str) -> None:
-
     try:
         manifest = storage.update(
             job_token,
@@ -124,16 +132,31 @@ def run_alignment_job(job_token: str, lyrics_text: str) -> None:
             error="",
             debug_log="",
         )
-       
         storage.update(job_token, progress_pct=15)
         lyrics = align_lyrics_text(Path(manifest.audio_path), lyrics_text)
-        
         storage.update(job_token, progress_pct=90)
         lyrics_path = storage.write_json(
             job_token,
             "lyrics.json",
             lyrics.model_dump(mode="json"),
         )
+
+        if manifest.project_id:
+            try:
+                from backend.core.database import SessionLocal
+                from backend.services.project_service import save_project_lyrics
+                with SessionLocal() as db:
+                    save_project_lyrics(
+                        db,
+                        manifest.project_id,
+                        manifest.user_id,
+                        raw_text=lyrics_text,
+                        timing_data=[line.model_dump() for line in lyrics.lines],
+                        source="manual",
+                    )
+            except Exception as db_exc:
+                print(f"[job_runner] Failed to persist aligned lyrics to DB: {db_exc}")
+
         storage.update(
             job_token,
             status=JobState.complete,
@@ -159,7 +182,6 @@ def run_art_direction_job(
     style_prompt: str,
     openai_api_key: str | None = None,
 ) -> None:
-   
     try:
         storage.update(
             job_token,
@@ -171,7 +193,7 @@ def run_art_direction_job(
         )
         manifest = storage.read_manifest(job_token)
         if not manifest.lyrics_path:
-            raise RuntimeError("No lyrics.json found ,run transcription or alignment first.")
+            raise RuntimeError("No lyrics.json found, run transcription or alignment first.")
 
         lyrics_payload = json.loads(Path(manifest.lyrics_path).read_text(encoding="utf-8"))
         from backend.models.schemas import parse_lyrics_payload
@@ -211,7 +233,6 @@ def run_art_direction_job(
 
         storyboard_dict = storyboard.model_dump(mode="json")
 
-        
         if has_ai_backgrounds:
             try:
                 from backend.services.ai_backgrounds import (
@@ -219,7 +240,6 @@ def run_art_direction_job(
                     generate_ai_backgrounds,
                 )
 
-                
                 def on_bg_progress(img_pct: int) -> None:
                     mapped = round(60 + img_pct / 100 * 35)
                     storage.update(job_token, progress_pct=mapped)
@@ -236,7 +256,6 @@ def run_art_direction_job(
                         storyboard_dict, prompt_to_index
                     )
             except Exception as bg_exc:  # noqa: BLE001
-                
                 print(f"[job_runner] AI background generation failed: {bg_exc}")
 
         storage.write_json(
@@ -244,6 +263,20 @@ def run_art_direction_job(
             "storyboard.json",
             storyboard_dict,
         )
+
+        if manifest.project_id and "scenes" in storyboard_dict:
+            try:
+                from backend.core.database import SessionLocal
+                from backend.services.project_service import save_storyboard_scenes
+                with SessionLocal() as db:
+                    save_storyboard_scenes(
+                        db,
+                        manifest.project_id,
+                        storyboard_dict.get("scenes", []),
+                    )
+            except Exception as db_exc:
+                print(f"[job_runner] Failed to persist scenes to DB: {db_exc}")
+
         storage.update(
             job_token,
             status=JobState.complete,
@@ -264,7 +297,6 @@ def run_art_direction_job(
 
 
 def run_export_job(job_token: str) -> None:
-
     try:
         storage.update(
             job_token,
@@ -295,7 +327,6 @@ def run_export_job(job_token: str) -> None:
         except Exception:
             pass
 
-        
         def on_render_progress(renderer_pct: int) -> None:
             mapped = round(35 + renderer_pct / 100 * 60)
             storage.update(job_token, progress_pct=mapped)
@@ -311,7 +342,6 @@ def run_export_job(job_token: str) -> None:
 
             job_asset_dirs = []
             if ai_bg_files:
-                # AI images live in job_dir — put it first so indices 0-N map to them
                 job_asset_dirs.append(job_dir)
             if background_path and background_path.exists():
                 job_asset_dirs.append(background_path.parent)
@@ -374,4 +404,3 @@ def run_export_job(job_token: str) -> None:
             error=_public_error(str(exc)),
             debug_log=str(exc),
         )
-

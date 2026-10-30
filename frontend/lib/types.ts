@@ -101,3 +101,22 @@ export type SongConfigForm = {
   generate_ai_backgrounds: boolean;
 };
 
+export type UserProfile = {
+  id: string;
+  email: string;
+  role: "admin" | "user";
+  status: "active" | "invited" | "revoked";
+  credits_remaining: number;
+};
+
+export type TokenResponse = {
+  access_token: string;
+  token_type: string;
+};
+
+export type InviteVerifyResponse = {
+  valid: boolean;
+  email: string;
+};
+
+

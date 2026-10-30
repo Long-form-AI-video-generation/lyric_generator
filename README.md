@@ -49,8 +49,102 @@ The compose stack exposes:
 
 Whisper model weights are cached in the `whisper-cache` Docker volume. For a GPU server, set `WHISPER_DEVICE=cuda` and use an appropriate CUDA-enabled Python base image for `backend/Dockerfile`.
 
+## Authentication & Database Setup
+
+LyricVid includes a multi-tenant authentication and private beta invitation system backed by **PostgreSQL** (e.g. [Neon](https://neon.tech)).
+
+### 1. Database Configuration
+
+Add your PostgreSQL connection string to your `.env` file:
+
+```env
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+```
+
+Run database migrations using Alembic:
+
+```bash
+alembic upgrade head
+```
+
+### 2. Creating an Admin Account
+
+Bootstrap the initial administrator account using the CLI script:
+
+```bash
+python scripts/create_admin.py --email admin@example.com --password YourSecurePassword --credits 100
+```
+
+Once logged in as an admin:
+- Click the **`LV LyricVid`** logo in the top-left of the wizard header to open the **Workspace Menu**.
+- Use the **"Invite Beta Tester"** section to invite new users and grant starting video generation credits.
+
+### 3. Video Credits & Quota System
+
+To prevent runaway GPU/CPU and LLM costs during beta testing, the platform enforces video generation quotas stored in the `user_quotas` table:
+
+- **Credit Allocation**:
+  - **Beta Testers**: Receive **3 credits** by default upon accepting their invitation (allows generating 3 complete videos). Admins can customize this amount (from 1 to 100 credits) when issuing the invite.
+  - **Admins**: Granted **100 credits** by default when created via `scripts/create_admin.py` (customizable using the `--credits` flag).
+- **Enforcement (`backend/core/permissions.py`)**:
+  - Each video export (`POST /api/export`) checks that `credits_remaining > 0` before initiating rendering.
+  - Each successful video export consumes 1 credit.
+  - When balance reaches 0, further export requests return `HTTP 402 Payment Required` until an admin increases the allowance.
+- **UI Integration**:
+  - Real-time remaining balance is prominently displayed in the top header (`⚡ {credits} credits`) and inside the workspace sidebar.
+
+---
+
+## Email Setup for Beta Invites (SMTP)
+
+Invitations are delivered automatically via HTML email containing single-use activation links.
+
+### Option A: Using Gmail SMTP (Zero domain setup required)
+
+To send invitations directly without owning a custom domain:
+
+1. Enable **2-Step Verification** on your Google Account: [myaccount.google.com/security](https://myaccount.google.com/security)
+2. Generate an **App Password**:
+   - Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   - App name: `LyricVid`
+   - Copy the 16-character password provided (e.g. `zkig huhu hoho hoho`).
+3. Add these variables to your `.env` file:
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASSWORD=your_16_char_app_password
+EMAIL_FROM="LyricVid Beta <your_email@gmail.com>"
+FRONTEND_BASE_URL=http://localhost:3000
+```
+
+### Option B: Using a Production SMTP Service (SendGrid, Mailgun, Amazon SES, Postmark)
+
+When deploying to a live server with a custom domain, configure your provider's SMTP credentials:
+
+```env
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASSWORD=your_sendgrid_api_key
+EMAIL_FROM="LyricVid Beta <invites@yourdomain.com>"
+FRONTEND_BASE_URL=https://your-frontend-domain.com
+```
+
+### Important Deployment Notes for SMTP:
+- **`FRONTEND_BASE_URL`**: Set this to the public URL of your frontend (e.g. `https://your-app.vercel.app` or `https://lyricvid.ai`). This ensures the activation links in emails direct users to the deployed app.
+- **Local Fallback**: If SMTP credentials are not set in `.env`, the system safely falls back to logging the activation link to the backend console so you can still test invitations locally without an active email server.
+
+---
+
 ## API Summary
 
+- `POST /api/auth/login` - authenticate user and return signed JWT token.
+- `GET /api/auth/me` - get current user profile and credit balance.
+- `GET /api/auth/invites/verify?token=...` - verify validity of an invite token.
+- `POST /api/auth/invites/accept` - set account password and activate invite.
+- `POST /api/admin/invites` - (Admin only) generate invitation and dispatch SMTP email.
 - `POST /api/upload` - upload MP3/WAV, returns a `job_token`.
 - `POST /api/transcribe` - queue Whisper transcription for an uploaded job.
 - `GET /api/status/{job_token}` - poll transcription/render progress.
@@ -61,7 +155,7 @@ Whisper model weights are cached in the `whisper-cache` Docker volume. For a GPU
 
 ## Data Retention
 
-There is no database, no accounts, and no analytics. Uploaded files and render outputs live under `LYRICVID_TEMP_ROOT` only. Jobs are deleted after download or when the TTL cleanup removes stale directories.
+User accounts, credit quotas, and invite tokens are securely persisted in PostgreSQL. Media files and render outputs live temporarily under `LYRICVID_TEMP_ROOT` and are automatically deleted after download or TTL expiration.
 
 ## Verification
 

@@ -1,7 +1,31 @@
 import axios from "axios";
-import type { AiBackground, ExportResolution, JobStatus, LyricsFile, Preset, Storyboard, UploadResponse } from "@/lib/types";
+import type {
+  AiBackground,
+  ExportResolution,
+  InviteVerifyResponse,
+  JobStatus,
+  LyricsFile,
+  Preset,
+  Storyboard,
+  TokenResponse,
+  UploadResponse,
+  UserProfile,
+} from "@/lib/types";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
+export function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem("lyricvid-auth");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    const token = parsed?.state?.token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
 
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({}));
@@ -22,12 +46,15 @@ export async function uploadAudio(file: File, onProgress?: (pct: number) => void
   const form = new FormData();
   form.append("audio", file);
   const response = await axios.post<UploadResponse>(`${API_BASE}/api/upload`, form, {
-    headers: { "Content-Type": "multipart/form-data" },
+    headers: {
+      "Content-Type": "multipart/form-data",
+      ...getAuthHeaders(),
+    },
     onUploadProgress(event) {
       if (event.total && onProgress) {
         onProgress(Math.round((event.loaded / event.total) * 100));
       }
-    }
+    },
   });
   return response.data;
 }
@@ -35,8 +62,11 @@ export async function uploadAudio(file: File, onProgress?: (pct: number) => void
 export async function startTranscription(jobToken: string) {
   const response = await fetch(`${API_BASE}/api/transcribe`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job_token: jobToken })
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ job_token: jobToken }),
   });
   return readJson<{ job_token: string; status: "queued" }>(response);
 }
@@ -44,8 +74,11 @@ export async function startTranscription(jobToken: string) {
 export async function startAlignment(jobToken: string, lyricsText: string) {
   const response = await fetch(`${API_BASE}/api/align`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job_token: jobToken, lyrics_text: lyricsText })
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ job_token: jobToken, lyrics_text: lyricsText }),
   });
   return readJson<{ job_token: string; status: "queued" }>(response);
 }
@@ -81,7 +114,10 @@ export async function startExport(params: {
   }
   const response = await fetch(`${API_BASE}/api/export`, {
     method: "POST",
-    body: form
+    headers: {
+      ...getAuthHeaders(),
+    },
+    body: form,
   });
   return readJson<{ job_token: string; status: "queued" }>(response);
 }
@@ -98,7 +134,13 @@ export async function uploadSpeakerImage(jobToken: string, artistName: string, f
   form.append("image", file);
   const response = await fetch(
     `${API_BASE}/api/jobs/${encodeURIComponent(jobToken)}/speaker-image/${encodeURIComponent(artistName)}`,
-    { method: "POST", body: form },
+    {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(),
+      },
+      body: form,
+    },
   );
   return readJson<{ ok: boolean }>(response);
 }
@@ -112,7 +154,10 @@ export async function startArtDirection(
 ) {
   const response = await fetch(`${API_BASE}/api/art-direct`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
     body: JSON.stringify({
       job_token: jobToken,
       style_prompt: stylePrompt,
@@ -142,7 +187,7 @@ export type SpeakerImage = {
 export async function getSpeakerImages(jobToken: string): Promise<SpeakerImage[]> {
   const response = await fetch(`${API_BASE}/api/jobs/${jobToken}/speakers`, { cache: "no-store" });
   const payload = await readJson<{ speakers: SpeakerImage[] }>(response);
-  return payload.speakers.map(s => ({
+  return payload.speakers.map((s) => ({
     ...s,
     url: `${API_BASE}${s.url}`,
     ...(s.generated_url ? { generated_url: `${API_BASE}${s.generated_url}` } : {}),
@@ -175,8 +220,7 @@ export async function getAiBackgrounds(jobToken: string): Promise<AiBackground[]
     cache: "no-store",
   });
   const payload = await readJson<{ backgrounds: AiBackground[] }>(response);
-  // Rewrite relative URLs to absolute so the canvas can load them cross-origin
-  return payload.backgrounds.map(bg => ({
+  return payload.backgrounds.map((bg) => ({
     ...bg,
     url: `${API_BASE}${bg.url}`,
   }));
@@ -187,5 +231,55 @@ export function assetUrl(path: string) {
     return path;
   }
   return `${API_BASE}${path}`;
+}
+
+// --- Auth & Beta Invite API Functions ---
+
+export async function loginApi(email: string, password: string): Promise<TokenResponse> {
+  const response = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return readJson<TokenResponse>(response);
+}
+
+export async function getProfileApi(): Promise<UserProfile> {
+  const response = await fetch(`${API_BASE}/api/auth/me`, {
+    headers: { ...getAuthHeaders() },
+    cache: "no-store",
+  });
+  return readJson<UserProfile>(response);
+}
+
+export async function verifyInviteApi(token: string): Promise<InviteVerifyResponse> {
+  const response = await fetch(`${API_BASE}/api/auth/invites/verify?token=${encodeURIComponent(token)}`, {
+    cache: "no-store",
+  });
+  return readJson<InviteVerifyResponse>(response);
+}
+
+export async function acceptInviteApi(token: string, password: string): Promise<TokenResponse> {
+  const response = await fetch(`${API_BASE}/api/auth/invites/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  return readJson<TokenResponse>(response);
+}
+
+export async function createInviteApi(
+  email: string,
+  creditAllowance: number = 3
+): Promise<{ email: string; message: string; expires_at: string }> {
+  const response = await fetch(`${API_BASE}/api/admin/invites`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ email, credit_allowance: creditAllowance }),
+  });
+  return readJson<{ email: string; message: string; expires_at: string }>(response);
 }
 
