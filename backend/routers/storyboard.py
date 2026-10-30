@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+from backend.core.database import get_db
+from backend.services.project_service import create_video_job
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from backend.core.auth import get_current_user
 from backend.core.config import settings
 from backend.core.errors import AppError, WorkerUnavailableError
+from backend.core.permissions import verify_job_owner
 from backend.models.schemas import ArtDirectRequest, JobPhase, JobState, QueueResponse
+from backend.models.user import User
 from backend.services.job_runner import run_art_direction_job
 from backend.services.media import sanitize_filename, save_validated_upload
 from backend.services.storage import storage
@@ -50,6 +56,8 @@ def _validate_song_config_yaml(yaml_text: str | None) -> None:
 async def art_direct(
     request: ArtDirectRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> QueueResponse:
     
     try:
@@ -60,6 +68,7 @@ async def art_direct(
             raise AppError(str(exc), status_code=422) from exc
 
         manifest = storage.read_manifest(request.job_token)
+        verify_job_owner(manifest, current_user)
 
         
         if not manifest.lyrics_path:
@@ -70,6 +79,9 @@ async def art_direct(
             )
 
         
+        if manifest.project_id:
+            create_video_job(db, manifest.project_id, current_user, job_type="art_direction", credits_cost=0)
+
         storage.write_json(
             request.job_token,
             "art_direction_request.json",

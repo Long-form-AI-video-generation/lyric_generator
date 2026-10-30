@@ -37,6 +37,36 @@ class Settings:
     app_name: str = "LyricVid"
     app_env: str = os.getenv("APP_ENV", "development")
     api_prefix: str = "/api"
+    
+    database_url: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/lyricvid_db",
+    )
+
+    secret_key: str = os.getenv("SECRET_KEY", "insecure-dev-secret-key-change-in-production")
+    jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 days
+    invite_token_expire_days: int = int(os.getenv("INVITE_TOKEN_EXPIRE_DAYS", "7"))
+
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user: str = os.getenv("SMTP_USER", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    resend_api_key: str = os.getenv("RESEND_API_KEY", "")
+    frontend_base_url: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+    email_from: str = os.getenv("EMAIL_FROM", "LyricVid Beta <eyobimpactinglife@gmail.com>")
+
+    # Cloudflare R2 / S3 Storage Settings
+    s3_bucket: str = os.getenv("R2_BUCKET", os.getenv("S3_BUCKET", ""))
+    s3_endpoint_url: str | None = os.getenv("R2_ENDPOINT_URL", os.getenv("S3_ENDPOINT_URL", None))
+    s3_region: str = os.getenv("R2_REGION", os.getenv("S3_REGION", "auto"))
+    aws_access_key_id: str | None = os.getenv("R2_ACCESS_KEY_ID", os.getenv("AWS_ACCESS_KEY_ID", None))
+    aws_secret_access_key: str | None = os.getenv("R2_SECRET_ACCESS_KEY", os.getenv("AWS_SECRET_ACCESS_KEY", None))
+    s3_presigned_expiry_seconds: int = int(os.getenv("S3_PRESIGNED_EXPIRY_SECONDS", "3600"))
+    use_s3_storage: bool = _bool_env(
+        "USE_S3_STORAGE",
+        bool(os.getenv("R2_BUCKET") or os.getenv("S3_BUCKET")),
+    )
 
     project_root: Path = Path(__file__).resolve().parents[2]
     backend_dir: Path = Path(__file__).resolve().parents[1]
@@ -70,7 +100,6 @@ class Settings:
 
     hide_internal_errors: bool = _bool_env("HIDE_INTERNAL_ERRORS", False)
 
-
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
@@ -79,9 +108,7 @@ class Settings:
     art_direction_model_anthropic: str = os.getenv("ART_DIRECTION_MODEL", "claude-sonnet-4-6")
    
     asset_dirs_raw: str = os.getenv("LYRICVID_ASSET_DIRS", "")
-   
     speaker_dirs_raw: str = os.getenv("LYRICVID_SPEAKER_DIRS", "")
-
 
 RESOLUTIONS: dict[str, tuple[int, int]] = {
     "1080p": (1920, 1080),

@@ -71,6 +71,7 @@ class UploadResponse(BaseModel):
     job_token: str
     filename: str
     duration_seconds: float
+    project_id: str | None = None
 
 
 class TranscribeRequest(BaseModel):
@@ -126,6 +127,8 @@ class JobManifest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     job_token: str
+    user_id: str | None = None
+    project_id: str | None = None
     original_filename: str
     safe_filename: str
     audio_path: str
@@ -139,6 +142,7 @@ class JobManifest(BaseModel):
     debug_log: str | None = None
     created_at: float
     updated_at: float
+
 
 
 class SpeakerStyle(BaseModel):
@@ -316,3 +320,63 @@ def _coerce_legacy_lyrics(payload: Any) -> dict[str, Any]:
 def parse_lyrics_payload(payload: Any) -> LyricsFile:
 
     return LyricsFile.model_validate(_coerce_legacy_lyrics(payload))
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserProfileResponse(BaseModel):
+    id: str
+    email: str
+    role: str
+    status: str
+    credits_remaining: int
+
+class InviteCreateRequest(BaseModel):
+    email: str
+    credit_allowance: int = 3
+
+
+class InviteResponse(BaseModel):
+    email: str
+    message: str = "Invitation sent successfully via email."
+    expires_at: str
+
+
+class InviteVerifyResponse(BaseModel):
+    valid: bool
+    email: str
+
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8)
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    title: str
+    status: str
+    styling_config: dict[str, Any] = {}
+    lyrics: dict[str, Any] | None = None
+    scenes: list[dict[str, Any]] = []
+    created_at: str
+    updated_at: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectListResponse(BaseModel):
+    projects: list[ProjectResponse]
+
+
+class ProjectUpdateRequest(BaseModel):
+    title: str | None = None
+    styling_config: dict[str, Any] | None = None
