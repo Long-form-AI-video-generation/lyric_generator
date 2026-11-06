@@ -3,11 +3,24 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    restart: unless-stopped
+    ports:
+      - "8333:8333" # S3 API endpoint
+      - "9333:9333" # SeaweedFS master server
+      - "8888:8888" # SeaweedFS filer UI
+    command: "server -s3 -dir=/data"
+    volumes:
+      - seaweed-data:/data
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       APP_ENV: production
       USE_CELERY: "true"
@@ -27,6 +40,7 @@ services:
       - whisper-cache:/home/lyricvid/.cache
     depends_on:
       - redis
+      - seaweedfs
 
   worker:
     build:
@@ -34,6 +48,8 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     command: celery -A backend.tasks.celery_app.celery_app worker --loglevel=INFO --queues=celery
+    env_file:
+      - .env
     environment:
       APP_ENV: production
       USE_CELERY: "true"
@@ -50,14 +66,17 @@ services:
       - whisper-cache:/home/lyricvid/.cache
     depends_on:
       - redis
+      - seaweedfs
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_BASE_URL: https://c101-196-188-112-242.ngrok-free.app
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:
@@ -66,4 +85,4 @@ services:
 volumes:
   lyricvid-temp:
   whisper-cache:
-
+  seaweed-data:

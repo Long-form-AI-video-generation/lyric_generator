@@ -26,6 +26,13 @@ class NotFoundError(AppError):
         super().__init__(message, status_code=404)
 
 
+class ForbiddenError(AppError):
+    """Raised when access to a resource is forbidden."""
+
+    def __init__(self, message: str = "You do not have permission to access this resource.") -> None:
+        super().__init__(message, status_code=403)
+
+
 class ValidationAppError(AppError):
     """Raised for user-correctable input validation failures."""
 
@@ -38,4 +45,3 @@ class WorkerUnavailableError(AppError):
 
     def __init__(self, message: str = "The worker queue is unavailable.") -> None:
         super().__init__(message, status_code=503)
-

@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { BackgroundSelection, JobStatus, LyricsFile, Preset, SongConfigForm, Storyboard } from "@/lib/types";
+import type { BackgroundSelection, JobStatus, LyricsFile, Preset, ProjectItem, SongConfigForm, Storyboard } from "@/lib/types";
 
 type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -34,6 +34,7 @@ const defaultSongConfig: SongConfigForm = {
 
 type AppState = {
   step: WizardStep;
+  activeProjectId: string | null;
   upload: UploadState;
   uploadProgress: number;
   lyrics: LyricsFile | null;
@@ -48,6 +49,7 @@ type AppState = {
   error: string;
   setStep: (step: WizardStep) => void;
   reset: () => void;
+  loadProject: (project: ProjectItem) => void;
   setUploadProgress: (value: number) => void;
   setUpload: (payload: UploadState) => void;
   setLyrics: (lyrics: LyricsFile, makeOriginal?: boolean) => void;
@@ -72,6 +74,7 @@ const emptyUpload: UploadState = {
 
 export const useAppStore = create<AppState>((set, get) => ({
   step: 0,
+  activeProjectId: null,
   upload: emptyUpload,
   uploadProgress: 0,
   lyrics: null,
@@ -91,6 +94,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (background?.type === "upload") URL.revokeObjectURL(background.previewUrl);
     set({
       step: 0,
+      activeProjectId: null,
       upload: emptyUpload,
       uploadProgress: 0,
       lyrics: null,
@@ -101,6 +105,50 @@ export const useAppStore = create<AppState>((set, get) => ({
       songConfig: { ...defaultSongConfig },
       exportStatus: null,
       error: ""
+    });
+  },
+  loadProject: (project: ProjectItem) => {
+    let lyricsFile: LyricsFile | null = null;
+    if (project.lyrics && project.lyrics.timing_data?.length) {
+      lyricsFile = {
+        title: project.title,
+        lines: project.lyrics.timing_data,
+        duration_seconds: project.lyrics.timing_data.length > 0
+          ? Math.max(...project.lyrics.timing_data.map((l) => l.end))
+          : undefined,
+      };
+    }
+
+    const isCompleted = project.status === "completed" || Boolean(project.latest_export);
+    const exportResultUrl = project.latest_export?.download_url || `/api/download/${project.id}`;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const audioFilename = project.audio?.file_name || `${project.title}.mp3`;
+    const audioUrl = project.audio?.url ? `${apiBase}${project.audio.url}` : `${apiBase}/api/projects/${project.id}/audio`;
+
+    set({
+      step: isCompleted ? 4 : (lyricsFile ? 1 : 0),
+      activeProjectId: project.id,
+      upload: {
+        file: null,
+        objectUrl: audioUrl,
+        filename: audioFilename,
+        duration: lyricsFile?.duration_seconds || 0,
+        jobToken: project.id,
+      },
+      lyrics: lyricsFile,
+      originalLyrics: lyricsFile ? structuredClone(lyricsFile) : null,
+      exportStatus: isCompleted
+        ? {
+            job_token: project.id,
+            status: "complete",
+            progress_pct: 100,
+            result_url: exportResultUrl,
+            error: null,
+            debug_log: null,
+          }
+        : null,
+      error: "",
     });
   },
   setUploadProgress: (uploadProgress) => set({ uploadProgress }),

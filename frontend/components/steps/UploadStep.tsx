@@ -72,10 +72,14 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
     [setError, setUpload, setUploadProgress]
   );
 
+  const hasAudio = Boolean(upload.file || (upload.filename && upload.jobToken));
+
   return (
     <div className="flex flex-1 flex-col gap-5">
       <div
-        className={`grid min-h-[200px] place-items-center rounded-xl border border-dashed p-6 transition md:min-h-[360px] md:p-8 ${
+        className={`grid place-items-center rounded-xl border border-dashed p-6 transition ${
+          hasAudio ? "min-h-[140px] md:min-h-[160px]" : "min-h-[200px] md:min-h-[360px] md:p-8"
+        } ${
           dragging ? "border-primary bg-violet-500/10 shadow-glow" : "border-border bg-surface"
         }`}
         onDragOver={(event) => {
@@ -89,16 +93,16 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
           handleFile(event.dataTransfer.files?.[0]);
         }}
       >
-        <label className="flex w-full max-w-2xl cursor-pointer flex-col items-center gap-5 text-center">
+        <label className="flex w-full max-w-2xl cursor-pointer flex-col items-center gap-3 text-center">
           <input type="file" accept="audio/mpeg,audio/wav,.mp3,.wav" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
-          <div className="grid h-12 w-12 place-items-center rounded-xl border border-violet-500/30 bg-violet-500/15 md:h-16 md:w-16">
-            <CloudUpload className="h-6 w-6 text-violet-200 md:h-8 md:w-8" aria-hidden />
+          <div className="grid h-10 w-10 place-items-center rounded-xl border border-violet-500/30 bg-violet-500/15 md:h-12 md:w-12">
+            <CloudUpload className="h-5 w-5 text-violet-200 md:h-6 md:w-6" aria-hidden />
           </div>
           <div>
-            <div className="font-display text-2xl font-black tracking-normal md:text-3xl">Upload audio</div>
-            <div className="mt-1 text-sm text-muted md:mt-2">MP3 or WAV, up to 200 MB</div>
+            <div className="font-display text-xl font-bold md:text-2xl">{hasAudio ? "Replace audio file" : "Upload audio"}</div>
+            <div className="mt-0.5 text-xs text-muted md:text-sm">MP3 or WAV, up to 200 MB</div>
           </div>
-          <Button variant="secondary" asChild><span>Choose File</span></Button>
+          <Button variant="secondary" className="text-xs" asChild><span>{hasAudio ? "Choose New File" : "Choose File"}</span></Button>
         </label>
       </div>
 
@@ -112,14 +116,20 @@ export function UploadStep({ onNext }: { onNext: () => void }) {
         </div>
       ) : null}
 
-      {upload.file ? (
+      {hasAudio ? (
         <div className="grid gap-4 rounded-xl border border-border bg-surface p-4 md:grid-cols-[auto_1fr_auto] md:items-center">
           <div className="grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/15 text-emerald-200">
             <FileAudio2 className="h-6 w-6" aria-hidden />
           </div>
           <div className="min-w-0">
             <div className="truncate font-semibold">{upload.filename}</div>
-            <div className="text-sm text-muted">{formatBytes(upload.file.size)} · {formatDuration(upload.duration)}</div>
+            <div className="text-sm text-muted">
+              {upload.file ? `${formatBytes(upload.file.size)} · ` : "Draft Audio · "}
+              {formatDuration(upload.duration)}
+            </div>
+            {upload.objectUrl && (
+              <audio controls src={upload.objectUrl} className="mt-2 h-8 w-full max-w-sm" />
+            )}
             <div className="mt-3 flex h-12 items-center gap-1 overflow-hidden" aria-label="Waveform visualisation">
               {(bars.length ? bars : Array.from({ length: 72 }, () => 0.35)).map((value, index) => (
                 <span key={index} className="w-1 flex-1 rounded-full bg-primary/80" style={{ height: `${Math.max(8, value * 44)}px` }} />
